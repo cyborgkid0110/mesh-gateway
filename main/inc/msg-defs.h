@@ -17,6 +17,12 @@
 #define OPCODE_SCAN_RESULT              0x40
 #define OPCODE_SEND_NEW_NODE_INFO       0x41
 
+#define OPCODE_SENSOR_DATA_GET          0x50
+#define OPCODE_SENSOR_DATA_STATUS       0x51
+
+#define OPCODE_DEVICE_INFO_GET          0x80
+#define OPCODE_DEVICE_INFO_STATUS       0x81
+
 #define OPCODE_TEST_SIMPLE_MSG          0xC4
 
 // received packet state
@@ -38,18 +44,6 @@ typedef struct ipac_uart_command {
     uint8_t msg_arg_size;
     void (*handler)(void*, uint8_t);
 } ipac_uart_command_t;
-
-typedef struct __attribute__((packed)) ipac_ble_mesh_msg_sensor_model_get {
-    uint8_t opcode;         // 1 byte
-    char name[5];           // 5 bytes
-    float temp;             // 4 bytes
-    float humid;
-    uint16_t illuminance;   // 2 bytes
-    uint16_t co2;           // 2 bytes
-    uint8_t presence;           // 1 bytes
-    uint8_t feedback;       // 1 byte = 19 bytes
-    uint8_t checksum;       // 1 byte
-} ipac_ble_mesh_msg_sensor_model_get_t;
 
 // msg structure for sending local keys
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_get_local_keys {
@@ -182,6 +176,41 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_model_pub_sub_stat
     uint8_t checksum;
 } ipac_ble_mesh_msg_send_model_pub_sub_status_t;
 
+typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_sensor_data_status {
+    float temp;             // 4 bytes
+    float humid;            // 4 bytes
+    uint16_t light;         // 2 bytes
+    uint16_t co2;           // 2 bytes
+    uint8_t motion;         // 1 byte
+    float dust;             // 4 bytes
+    uint8_t battery;        // 1 byte
+} ipac_ble_mesh_model_msg_sensor_data_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_sensor_data_status {
+    uint8_t opcode;         // 1 byte
+    uint16_t unicast;       // 2 bytes
+    float temp;             // 4 bytes
+    float humid;            // 4 bytes
+    uint16_t light;         // 2 bytes
+    uint16_t co2;           // 2 bytes
+    uint8_t motion;         // 1 byte
+    float dust;             // 4 bytes
+    uint8_t battery;        // 1 byte
+    uint8_t checksum;       // 1 byte
+} ipac_ble_mesh_msg_send_sensor_data_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_device_info_status {
+    uint8_t device_name[20];
+    uint8_t function;
+    int8_t tx_power;
+} ipac_ble_mesh_model_msg_device_info_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status {
+    uint8_t device_name[20];
+    uint8_t function;
+    int8_t tx_power;
+} ipac_ble_mesh_msg_send_device_info_status_t;
+
 // size of arguments in message in command
 #define MSG_ARG_NONE                            0
 #define MSG_ARG_SIZE_GET_LOCAL_KEYS             MSG_ARG_NONE
@@ -195,6 +224,8 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_model_pub_sub_stat
 #define MSG_ARG_SIZE_BIND_MODEL_APP             sizeof(ipac_ble_mesh_msg_recv_bind_model_app_t)
 #define MSG_ARG_SIZE_SET_MODEL_PUB              sizeof(ipac_ble_mesh_msg_recv_model_pub_sub_set_t)
 #define MSG_ARG_SIZE_SET_MODEL_SUB              sizeof(ipac_ble_mesh_msg_recv_model_pub_sub_set_t)
+#define MSG_ARG_SIZE_SENSOR_DATA_GET            MSG_ARG_NONE
+#define MSG_ARG_SIZE_DEVICE_INFO_GET            MSG_ARG_NONE
 
 #define MSG_SIZE_GET_LOCAL_KEYS                 sizeof(ipac_ble_mesh_msg_send_get_local_keys_t)
 #define MSG_SIZE_UPDATE_LOCAL_KEYS              sizeof(ipac_ble_mesh_msg_send_get_local_keys_t)
@@ -206,5 +237,6 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_model_pub_sub_stat
 #define MSG_SIZE_MODEL_APP_STATUS               sizeof(ipac_ble_mesh_msg_send_model_app_status_t)
 #define MSG_SIZE_MODEL_PUB_STATUS               sizeof(ipac_ble_mesh_msg_send_model_pub_sub_status_t)
 #define MSG_SIZE_MODEL_SUB_STATUS               sizeof(ipac_ble_mesh_msg_send_model_pub_sub_status_t)
+#define MSG_SIZE_SENSOR_DATA_STATUS             sizeof(ipac_ble_mesh_msg_send_sensor_data_status_t)
 
 #define MSG_ARG_SIZE_TEST_SIMPLE_MSG            MSG_ARG_NONE
