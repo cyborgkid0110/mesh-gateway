@@ -1042,7 +1042,7 @@ void example_ble_mesh_send_vendor_message(bool resend)
     // mesh_example_info_store(); /* Store proper mesh example info */
 }
 
-static void example_ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event,
+static void ipac_ble_mesh_sensor_cli_model_cb(esp_ble_mesh_model_cb_event_t event,
                                             esp_ble_mesh_model_cb_param_t *param)
 {
     static int64_t start_time;
@@ -1086,11 +1086,21 @@ static esp_err_t ble_mesh_init(void)
     esp_ble_mesh_register_prov_callback(example_ble_mesh_provisioning_cb);
     esp_ble_mesh_register_config_client_callback(example_ble_mesh_config_client_cb);
     // esp_ble_mesh_register_generic_client_callback(example_ble_mesh_generic_client_cb);
-    esp_ble_mesh_register_custom_model_callback(example_ble_mesh_custom_model_cb);
+    esp_ble_mesh_register_custom_model_callback(ipac_ble_mesh_sensor_cli_model_cb);
 
     err = esp_ble_mesh_init(&provision, &composition);
     if (err != ESP_OK) {
         // ESP_LOGE(TAG, "Failed to initialize mesh stack (err %d)", err);
+        return err;
+    }
+
+    err = esp_ble_mesh_client_model_init(sensor_cli_model);
+    if (err) {
+        return err;
+    }
+
+    err = esp_ble_mesh_client_model_init(device_info_cli_model);
+    if (err) {
         return err;
     }
 
