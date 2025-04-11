@@ -712,7 +712,20 @@ static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t 
 }
 
 static void ipac_uart_cmd_recv_device_info_get(void *arg, uint8_t status) {
-    
+    esp_ble_mesh_model_publish(device_info_cli_model, DEVICE_INFO_MODEL_OPCODE_GET, 0, NULL, MSG_ROLE);
+}
+
+static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t *param) {
+    ipac_ble_mesh_msg_send_device_info_status_t msg = {0};
+
+    msg.opcode = OPCODE_SENSOR_DATA_STATUS;
+    msg.unicast = param->model_operation.ctx->addr;
+    msg.function = ((ipac_ble_mesh_model_msg_device_info_status_t*)(param->model_operation.msg))->function;
+    msg.tx_power = ((ipac_ble_mesh_model_msg_device_info_status_t*)(param->model_operation.msg))->tx_power;
+    memcpy(msg.device_name, ((ipac_ble_mesh_model_msg_device_info_status_t*)(param->model_operation.msg))->device_name, DEVICE_NAME_MAX_SIZE);
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_DEVICE_INFO_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_DEVICE_INFO_STATUS);
 }
 
 /* Test UART communication */
@@ -1045,8 +1058,6 @@ void example_ble_mesh_send_vendor_message(bool resend)
 static void ipac_ble_mesh_sensor_cli_model_cb(esp_ble_mesh_model_cb_event_t event,
                                             esp_ble_mesh_model_cb_param_t *param)
 {
-    static int64_t start_time;
-
     switch (event) {
     case ESP_BLE_MESH_MODEL_OPERATION_EVT:
         // see in vendor models exp

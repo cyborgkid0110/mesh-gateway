@@ -33,6 +33,8 @@
 #define RESPONSE_BYTE_STATUS_OK     0x01
 #define RESPONSE_BYTE_STATUS_FAILED 0x02
 
+#define DEVICE_NAME_MAX_SIZE        20
+
 /********************************************************************
  * Data structures
  ********************************************************************/
@@ -200,15 +202,18 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_sensor_data_status
 } ipac_ble_mesh_msg_send_sensor_data_status_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_device_info_status {
-    uint8_t device_name[20];
+    uint8_t device_name[DEVICE_NAME_MAX_SIZE];
     uint8_t function;
     int8_t tx_power;
 } ipac_ble_mesh_model_msg_device_info_status_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status {
-    uint8_t device_name[20];
+    uint8_t opcode;
+    uint16_t unicast;
+    uint8_t device_name[DEVICE_NAME_MAX_SIZE];
     uint8_t function;
     int8_t tx_power;
+    uint8_t checksum;
 } ipac_ble_mesh_msg_send_device_info_status_t;
 
 // size of arguments in message in command
@@ -238,5 +243,6 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status
 #define MSG_SIZE_MODEL_PUB_STATUS               sizeof(ipac_ble_mesh_msg_send_model_pub_sub_status_t)
 #define MSG_SIZE_MODEL_SUB_STATUS               sizeof(ipac_ble_mesh_msg_send_model_pub_sub_status_t)
 #define MSG_SIZE_SENSOR_DATA_STATUS             sizeof(ipac_ble_mesh_msg_send_sensor_data_status_t)
+#define MSG_SIZE_DEVICE_INFO_STATUS             sizeof(ipac_ble_mesh_msg_send_device_info_status_t)
 
 #define MSG_ARG_SIZE_TEST_SIMPLE_MSG            MSG_ARG_NONE
