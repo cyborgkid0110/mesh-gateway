@@ -25,6 +25,7 @@
 #include "esp_ble_mesh_networking_api.h"
 #include "esp_ble_mesh_config_model_api.h"
 #include "esp_ble_mesh_generic_model_api.h"
+#include "esp_ble_mesh_rpr_model_api.h"
 
 #include "inc/msg-defs.h"
 #include "inc/model.h"
@@ -51,6 +52,8 @@
 #define APP_KEY_IDX         0x0000
 #define APP_KEY_OCTET       0x12
 
+#define PB_REMOTE           0x04
+
 // UART configuration
 #define UART_TXD 1
 #define UART_RXD 3
@@ -73,6 +76,7 @@ static struct esp_ble_mesh_key {
 } prov_key;
 
 static uint8_t dev_uuid[16];
+static uint16_t cur_rpr_cli_opcode;
 static esp_ble_mesh_client_t config_client;
 static esp_ble_mesh_cfg_srv_t config_server = {
     /* 3 transmissions with 20ms interval */
@@ -92,10 +96,16 @@ static esp_ble_mesh_cfg_srv_t config_server = {
 #endif
     .default_ttl = 7,
 };
+#if CONFIG_BLE_MESH_RPR_CLI
+static esp_ble_mesh_client_t remote_prov_client;
+#endif
 
 static esp_ble_mesh_model_t root_models[] = {
     ESP_BLE_MESH_MODEL_CFG_SRV(&config_server),     // this is for connecting to smart devices
     ESP_BLE_MESH_MODEL_CFG_CLI(&config_client),
+#if CONFIG_BLE_MESH_RPR_CLI
+    ESP_BLE_MESH_MODEL_RPR_CLI(&remote_prov_client),
+#endif
 };
 
 static esp_ble_mesh_prov_t provision = {
@@ -151,14 +161,14 @@ static esp_ble_mesh_model_op_t device_info_model_op[] = {
 ESP_BLE_MESH_MODEL_PUB_DEFINE(device_info_cli_pub, 1, MSG_ROLE);
 
 static esp_ble_mesh_model_t vnd_models[] = {
-    ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, SENSOR_MODEL_ID_CLIENT,
+    ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, DEVICE_INFO_MODEL_ID_CLIENT,
     device_info_model_op, &device_info_cli_pub, &device_info_client),
     ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, SENSOR_MODEL_ID_CLIENT,
     sensor_model_op, &sensor_cli_pub, &sensor_client),
 };
 
-static esp_ble_mesh_model_t* device_info_cli_model = &vnd_models[0];
-static esp_ble_mesh_model_t* sensor_cli_model = &vnd_models[1];
+// static esp_ble_mesh_model_t* device_info_cli_model = &vnd_models[0];
+// static esp_ble_mesh_model_t* sensor_cli_model = &vnd_models[1];
 
 static esp_ble_mesh_elem_t elements[] = {
     ESP_BLE_MESH_ELEMENT(0, root_models, vnd_models),
@@ -182,6 +192,15 @@ static void ipac_uart_cmd_recv_add_app_key(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_model_app_bind(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_model_pub_set(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_model_sub_add(void *arg, uint8_t status);
+#if CONFIG_BLE_MESH_RPR_CLI
+static void ipac_uart_cmd_recv_rpr_scan_get(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_rpr_scan_start(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_rpr_scan_stop(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_rpr_link_get(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_rpr_link_open(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_rpr_link_close(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_remote_prov(void *arg, uint8_t status);
+#endif
 static void ipac_uart_cmd_recv_sensor_data_get(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_device_info_get(void *arg, uint8_t status);
 
@@ -202,6 +221,14 @@ static const ipac_uart_command_t uart_cmd[] = {
     {OPCODE_SET_MODEL_SUB, MSG_ARG_SIZE_SET_MODEL_SUB, ipac_uart_cmd_recv_model_sub_add},
     {OPCODE_SENSOR_DATA_GET, MSG_ARG_SIZE_SENSOR_DATA_GET, ipac_uart_cmd_recv_sensor_data_get},
     {OPCODE_DEVICE_INFO_GET, MSG_ARG_SIZE_DEVICE_INFO_GET, ipac_uart_cmd_recv_device_info_get},
+#if CONFIG_BLE_MESH_RPR_CLI
+    {OPCODE_RPR_SCAN_START, MSG_ARG_SIZE_RPR_SCAN_START, ipac_uart_cmd_recv_rpr_scan_start},
+    {OPCODE_RPR_SCAN_STOP, MSG_ARG_SIZE_RPR_SCAN_STOP, ipac_uart_cmd_recv_rpr_scan_stop},
+    {OPCODE_RPR_LINK_GET, MSG_ARG_SIZE_RPR_LINK_GET, ipac_uart_cmd_recv_rpr_link_get},
+    {OPCODE_RPR_LINK_OPEN, MSG_ARG_SIZE_RPR_LINK_OPEN, ipac_uart_cmd_recv_rpr_link_open},
+    {OPCODE_RPR_LINK_CLOSE, MSG_ARG_SIZE_RPR_LINK_CLOSE, ipac_uart_cmd_recv_rpr_link_close},
+    {OPCODE_REMOTE_PROVISIONING, MSG_ARG_SIZE_REMOTE_PROV, ipac_uart_cmd_recv_remote_prov},
+#endif
 #if defined(DEBUG_TEST_COM) && (DEBUG_TEST_COM == 1)
     {OPCODE_TEST_SIMPLE_MSG, MSG_ARG_SIZE_TEST_SIMPLE_MSG, test_simple_msg}
 #endif
@@ -356,6 +383,7 @@ static void ipac_uart_cmd_send_scan_result(esp_ble_mesh_prov_cb_param_t *param)
         .rssi = param->provisioner_recv_unprov_adv_pkt.rssi,
     };
 
+    memcpy(msg.device_name, "IPAC_LAB_SMART_FARM", DEVICE_NAME_MAX_SIZE);
     memcpy(msg.uuid, param->provisioner_recv_unprov_adv_pkt.dev_uuid, 16);
     memcpy(msg.addr, param->provisioner_recv_unprov_adv_pkt.addr, BD_ADDR_LEN);
     msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_SCAN_RESULT);
@@ -394,7 +422,7 @@ static void ipac_uart_cmd_recv_add_device(void *arg, uint8_t status) {
     res.oob_info = add_dev.oob_info;
     res.bearer_type = add_dev.bearer;
     memcpy(res.uuid, add_dev.uuid, 16);
-    memcpy(res.addr, add_dev.addr, 16);
+    memcpy(res.addr, add_dev.addr, 6);
     res.status = (err == ESP_OK) ? RESPONSE_BYTE_STATUS_OK : RESPONSE_BYTE_STATUS_FAILED;
     res.checksum = ipac_cal_checksum((void*) &res, 0, MSG_SIZE_ADD_UNPROV_DEV_ACK);
     uart_write_bytes(UART_PORT_NUM, (const void *) &res, MSG_SIZE_ADD_UNPROV_DEV_ACK);
@@ -415,20 +443,30 @@ static esp_err_t send_new_node_info_msg(ipac_ble_mesh_msg_send_new_node_info_t* 
     return ESP_OK;
 }
 
-static void ipac_uart_cmd_send_add_device_complete(esp_ble_mesh_prov_cb_param_t *param) {
+static void ipac_uart_cmd_send_add_device_complete(void *param, uint8_t remote) {
     esp_ble_mesh_client_common_param_t common = {0};
     esp_ble_mesh_cfg_client_get_state_t get_state = {0};
-    int err;
-    ipac_ble_mesh_msg_send_new_node_info_t node = {
-        .node_idx = param->provisioner_prov_complete.node_idx,
-        .unicast = param->provisioner_prov_complete.unicast_addr,
-        .net_idx = param->provisioner_prov_complete.netkey_idx,
-        .elem_num = param->provisioner_prov_complete.element_num,
-    };
-    memcpy(node.uuid, param->provisioner_prov_complete.device_uuid, 16);
+    esp_err_t err = ESP_OK;
+    ipac_ble_mesh_msg_send_new_node_info_t node = {0};
+    
+    node.remote = remote; 
+    if (remote == false) {
+        node.rpr_srv_addr = 0x0000;
+        node.unicast = ((esp_ble_mesh_prov_cb_param_t*)param)->provisioner_prov_complete.unicast_addr,
+        node.net_idx = ((esp_ble_mesh_prov_cb_param_t*)param)->provisioner_prov_complete.netkey_idx,
+        node.elem_num = ((esp_ble_mesh_prov_cb_param_t*)param)->provisioner_prov_complete.element_num,
+        memcpy(node.uuid, ((esp_ble_mesh_prov_cb_param_t*)param)->provisioner_prov_complete.device_uuid, 16);
+    }
+    else {
+        node.rpr_srv_addr = ((esp_ble_mesh_rpr_client_cb_param_t*)param)->prov.rpr_srv_addr;
+        node.unicast = ((esp_ble_mesh_rpr_client_cb_param_t*)param)->prov.unicast_addr,
+        node.net_idx = ((esp_ble_mesh_rpr_client_cb_param_t*)param)->prov.net_idx,
+        node.elem_num = ((esp_ble_mesh_rpr_client_cb_param_t*)param)->prov.element_num,    
+        memcpy(node.uuid, ((esp_ble_mesh_rpr_client_cb_param_t*)param)->prov.uuid, 16);
+    }
 
     err = send_new_node_info_msg(&node);
-    if (err) {
+    if (err != ESP_OK) {
         // ESP_LOGE(TAG, "%s: Store node info failed", __func__);
     }
 
@@ -436,12 +474,11 @@ static void ipac_uart_cmd_send_add_device_complete(esp_ble_mesh_prov_cb_param_t 
     // - primary address is unicast (ESP_BLE_MESH_ADDR_IS_UNICAST)
     // - search database with primary address
 
-    // ipac_ble_mesh_set_msg_common(&common, node, config_client.model, ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET);
+    // ipac_ble_mesh_set_msg_common(&common, node.unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET);
     // get_state.comp_data_get.page = COMP_DATA_PAGE_0;
     // err = esp_ble_mesh_config_client_get_state(&common, &get_state);
     // if (err) {
     //     // ESP_LOGE(TAG, "%s: Send config comp data get failed", __func__);
-    //     return ESP_FAIL;
     // }
 }
 
@@ -500,10 +537,14 @@ static void ipac_uart_cmd_recv_get_composition_data(void *arg, uint8_t status) {
         return;
     }
 
-    ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_get_composition_data_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET);
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_get_composition_data_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_GET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
     get_state.comp_data_get.page = COMP_DATA_PAGE_0;
     err = esp_ble_mesh_config_client_get_state(&common, &get_state);
-    if (err) {
+    if (err != ESP_OK) {
         // ESP_LOGE(TAG, "%s: Send config comp data get failed", __func__);
     }
 }
@@ -540,12 +581,16 @@ static void ipac_uart_cmd_recv_add_app_key(void *arg, uint8_t status) {
         return;
     }
 
-    ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_add_app_key_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_APP_KEY_ADD);
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_add_app_key_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_APP_KEY_ADD);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
     set_state.app_key_add.net_idx = prov_key.net_idx;
     set_state.app_key_add.app_idx = prov_key.app_idx;
     memcpy(set_state.app_key_add.app_key, prov_key.app_key, ESP_BLE_MESH_OCTET16_LEN);
     err = esp_ble_mesh_config_client_set_state(&common, &set_state);
-    if (err) {
+    if (err != ESP_OK) {
         // ESP_LOGE(TAG, "%s: Config AppKey Add failed", __func__);
         return;
     }
@@ -578,7 +623,11 @@ static void ipac_uart_cmd_recv_model_app_bind(void *arg, uint8_t status) {
         return;
     }
 
-    ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_bind_model_app_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_MODEL_APP_BIND);
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_bind_model_app_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_MODEL_APP_BIND);
+    if (err) {
+        // error msg
+        return;
+    }
     set_state.model_app_bind.element_addr = ((ipac_ble_mesh_msg_recv_bind_model_app_t*)arg)->unicast;
     set_state.model_app_bind.model_app_idx = prov_key.app_idx;
     set_state.model_app_bind.model_id = ((ipac_ble_mesh_msg_recv_bind_model_app_t*)arg)->model_id;
@@ -621,14 +670,18 @@ static void ipac_uart_cmd_recv_model_pub_set(void *arg, uint8_t status) {
         return;
     }
 
-    ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_MODEL_PUB_SET);
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_MODEL_PUB_SET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
     set_state.model_pub_set.element_addr = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->unicast;
     set_state.model_pub_set.publish_app_idx = prov_key.app_idx;
     set_state.model_pub_set.publish_addr = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->group_addr;
     set_state.model_pub_set.model_id = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->model_id;
     set_state.model_pub_set.company_id = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->cid;
     err = esp_ble_mesh_config_client_set_state(&common, &set_state);
-    if (err) {
+    if (err != ESP_OK) {
         // error msg
         return;
     }
@@ -664,13 +717,17 @@ static void ipac_uart_cmd_recv_model_sub_add(void *arg, uint8_t status) {
         return;
     }
 
-    ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_MODEL_SUB_ADD);
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_MODEL_SUB_ADD);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
     set_state.model_sub_add.element_addr = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->unicast;
     set_state.model_sub_add.sub_addr = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->group_addr;
     set_state.model_sub_add.model_id = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->model_id;
     set_state.model_sub_add.company_id = ((ipac_ble_mesh_msg_recv_model_pub_sub_set_t*)arg)->cid;
     err = esp_ble_mesh_config_client_set_state(&common, &set_state);
-    if (err) {
+    if (err != ESP_OK) {
         // error msg
         return;
     }
@@ -690,8 +747,290 @@ static void ipac_uart_cmd_send_model_sub_status(esp_ble_mesh_cfg_client_cb_param
     uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_MODEL_SUB_STATUS);
 }
 
+#if CONFIG_BLE_MESH_RPR_CLI
+static void ipac_uart_cmd_recv_rpr_scan_get(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    uint16_t remote_rpr_srv_addr = 0;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RPR_SCAN_GET, MSG_ARG_SIZE_RPR_SCAN_GET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+    
+    remote_rpr_srv_addr = ((ipac_ble_mesh_msg_recv_rpr_scan_t*)arg)->unicast;
+    err = ipac_ble_mesh_set_msg_common(&common, remote_rpr_srv_addr, remote_prov_client.model, ESP_BLE_MESH_MODEL_OP_RPR_SCAN_GET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+
+    err = esp_ble_mesh_rpr_client_send(&common, NULL);      // can append message at here instead of NULL
+    if (err != ESP_OK) {
+        // error msg
+    }
+}
+
+static void ipac_uart_cmd_recv_rpr_scan_start(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_rpr_client_msg_t msg = {0};
+    uint16_t remote_rpr_srv_addr = 0;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RPR_SCAN_START, MSG_ARG_SIZE_RPR_SCAN_START) != 0x00)
+    {
+        // error msg
+        return;
+    }
+    
+    remote_rpr_srv_addr = ((ipac_ble_mesh_msg_recv_rpr_scan_t*)arg)->unicast;
+    err = ipac_ble_mesh_set_msg_common(&common, remote_rpr_srv_addr, remote_prov_client.model, ESP_BLE_MESH_MODEL_OP_RPR_SCAN_START);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+
+    msg.scan_start.scan_items_limit = 0; /* 0 indicates there is no limit for scan items' count */
+    msg.scan_start.timeout = 0x0A;       /* 0x0A is the default timeout */
+    msg.scan_start.uuid_en = 0;          /* If uuid enabled, a specify device which have the same uuid will be report */
+                                            /* If uuid disable, any unprovision device all will be report */
+
+    err = esp_ble_mesh_rpr_client_send(&common, &msg);
+    if (err != ESP_OK) {
+        // error msg
+    }
+}
+
+static void ipac_uart_cmd_recv_rpr_scan_stop(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    uint16_t remote_rpr_srv_addr = 0;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RPR_SCAN_STOP, MSG_ARG_SIZE_RPR_SCAN_STOP) != 0x00)
+    {
+        // error msg
+        return;
+    }
+    
+    remote_rpr_srv_addr = ((ipac_ble_mesh_msg_recv_rpr_scan_t*)arg)->unicast;
+    err = ipac_ble_mesh_set_msg_common(&common, remote_rpr_srv_addr, remote_prov_client.model, ESP_BLE_MESH_MODEL_OP_RPR_SCAN_STOP);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+
+    err = esp_ble_mesh_rpr_client_send(&common, NULL);      // can append message at here instead of NULL
+    if (err != ESP_OK) {
+        // error msg
+    }
+}
+
+static void ipac_uart_cmd_send_rpr_scan_status(uint8_t uart_opcode, esp_ble_mesh_rpr_client_cb_param_t *param) {
+    ipac_ble_mesh_msg_send_rpr_scan_status_t msg = {0};
+    
+    msg.opcode = uart_opcode;
+    msg.unicast = param->recv.params->ctx.addr;
+    msg.status = param->recv.val.scan_status.status;
+    msg.rpr_scanning = param->recv.val.scan_status.rpr_scanning;
+    msg.scan_items_limit = param->recv.val.scan_status.scan_items_limit;
+    msg.timeout = param->recv.val.scan_status.timeout;
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_RPR_SCAN_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_RPR_SCAN_STATUS);
+}
+
+static void ipac_uart_cmd_send_rpr_scan_report(esp_ble_mesh_rpr_client_cb_param_t *param) {
+    ipac_ble_mesh_msg_send_rpr_scan_report_t msg = {0};
+
+    msg.opcode = OPCODE_RPR_SCAN_RESULT;
+    msg.unicast = param->recv.params->ctx.addr;
+    msg.rssi = param->recv.val.scan_report.rssi;
+    memcpy(msg.uuid, param->recv.val.scan_report.uuid, 16);
+    msg.oob_info = param->recv.val.scan_report.oob_info;
+    msg.uri_hash = param->recv.val.scan_report.uri_hash;
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_RPR_SCAN_REPORT);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_RPR_SCAN_REPORT);
+}
+
+static void ipac_uart_cmd_recv_rpr_link_get(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    uint16_t remote_rpr_srv_addr = 0;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RPR_LINK_GET, MSG_ARG_SIZE_RPR_LINK_GET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+    
+    remote_rpr_srv_addr = ((ipac_ble_mesh_msg_recv_rpr_link_get_t*)arg)->unicast;
+    err = ipac_ble_mesh_set_msg_common(&common, remote_rpr_srv_addr, remote_prov_client.model, ESP_BLE_MESH_MODEL_OP_RPR_LINK_GET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+
+    err = esp_ble_mesh_rpr_client_send(&common, NULL);
+    if (err != ESP_OK) {
+        // error msg
+    }
+}   
+
+static void ipac_uart_cmd_recv_rpr_link_open(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_rpr_client_msg_t msg = {0};
+    uint16_t remote_rpr_srv_addr = 0;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RPR_LINK_OPEN, MSG_ARG_SIZE_RPR_LINK_OPEN) != 0x00)
+    {
+        // error msg
+        return;
+    }
+    
+    remote_rpr_srv_addr = ((ipac_ble_mesh_msg_recv_rpr_link_open_t*)arg)->unicast;
+    err = ipac_ble_mesh_set_msg_common(&common, remote_rpr_srv_addr, remote_prov_client.model, ESP_BLE_MESH_MODEL_OP_RPR_LINK_OPEN);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+    
+    msg.link_open.uuid_en = 1;
+    memcpy(msg.link_open.uuid, ((ipac_ble_mesh_msg_recv_rpr_link_open_t*)arg)->uuid, 16);
+    msg.link_open.timeout_en = 0;
+
+    err = esp_ble_mesh_rpr_client_send(&common, NULL);
+    if (err != ESP_OK) {
+        // error msg
+    }
+}
+
+static void ipac_uart_cmd_recv_rpr_link_close(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_rpr_client_msg_t msg = {0};
+    uint16_t remote_rpr_srv_addr = 0;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RPR_LINK_OPEN, MSG_ARG_SIZE_RPR_LINK_OPEN) != 0x00)
+    {
+        // error msg
+        return;
+    }
+    
+    remote_rpr_srv_addr = ((ipac_ble_mesh_msg_recv_rpr_link_close_t*)arg)->unicast;
+    err = ipac_ble_mesh_set_msg_common(&common, remote_rpr_srv_addr, remote_prov_client.model, ESP_BLE_MESH_MODEL_OP_RPR_LINK_CLOSE);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+    
+    msg.link_close.reason = ((ipac_ble_mesh_msg_recv_rpr_link_close_t*)arg)->reason;
+    
+    err = esp_ble_mesh_rpr_client_send(&common, &msg);
+    if (err != ESP_OK) {
+        // error msg
+    }
+}
+
+static void ipac_uart_cmd_send_rpr_link_status(uint8_t uart_opcode, esp_ble_mesh_rpr_client_cb_param_t *param) {
+    ipac_ble_mesh_msg_send_rpr_link_status_t msg = {0};
+
+    msg.opcode = uart_opcode;
+    msg.unicast = param->recv.params->ctx.addr;
+    msg.status = param->recv.val.link_status.status;
+    msg.rpr_state = param->recv.val.link_status.rpr_state;
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_RPR_LINK_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_RPR_LINK_STATUS);
+} 
+
+static void ipac_uart_cmd_send_rpr_link_report(esp_ble_mesh_rpr_client_cb_param_t *param) {
+    ipac_ble_mesh_msg_send_rpr_link_report_t msg = {0};
+
+    msg.opcode = OPCODE_RPR_LINK_REPORT;
+    msg.unicast = param->recv.params->ctx.addr;
+    msg.status = param->recv.val.link_report.status;
+    msg.rpr_state = param->recv.val.link_report.rpr_state;
+    msg.reason_en = param->recv.val.link_report.reason_en;
+    msg.reason = param->recv.val.link_report.reason;
+    
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_RPR_LINK_REPORT);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_RPR_LINK_REPORT);
+}
+
+static void ipac_uart_cmd_recv_remote_prov(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_rpr_client_act_param_t param = {0};
+    uint16_t remote_rpr_srv_addr = 0;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_REMOTE_PROVISIONING, MSG_ARG_SIZE_REMOTE_PROV) != 0x00)
+    {
+        // error msg
+        return;
+    }
+    
+    param.start_rpr.model = remote_prov_client.model;
+    param.start_rpr.rpr_srv_addr = ((ipac_ble_mesh_msg_recv_remote_prov_t*)arg)->unicast;
+
+    /* Let remote provisioning server start provisioning */
+    err = esp_ble_mesh_rpr_client_action(ESP_BLE_MESH_RPR_CLIENT_ACT_START_RPR, &param);
+    if (err) {
+        // ESP_LOGE(TAG, "Failed to perform Remote Provisioning Client action: Start Prov");
+    }
+}
+
+static void ipac_uart_cmd_send_remote_prov_ack(esp_ble_mesh_rpr_client_cb_param_t *param) {
+    ipac_ble_mesh_msg_send_remote_prov_ack_t msg = {0};
+
+    msg.opcode = OPCODE_REMOTE_PROVISIONING;
+    msg.status = (param->act.start_rpr_comp.err_code == 0) ? RESPONSE_BYTE_STATUS_OK : RESPONSE_BYTE_STATUS_FAILED;
+    msg.unicast = param->act.start_rpr_comp.rpr_srv_addr;
+    
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_REMOTE_PROV_ACK);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_REMOTE_PROV_ACK);
+}
+
+#endif
+
 static void ipac_uart_cmd_recv_sensor_data_get(void *arg, uint8_t status) {
-    esp_ble_mesh_model_publish(sensor_cli_model, SENSOR_MODEL_OPCODE_GET, 0, NULL, MSG_ROLE);
+    esp_ble_mesh_model_publish(sensor_client.model, SENSOR_MODEL_OPCODE_GET, 0, NULL, MSG_ROLE);
 }
 
 static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t *param) {
@@ -712,10 +1051,10 @@ static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t 
 }
 
 static void ipac_uart_cmd_recv_device_info_get(void *arg, uint8_t status) {
-    esp_ble_mesh_model_publish(device_info_cli_model, DEVICE_INFO_MODEL_OPCODE_GET, 0, NULL, MSG_ROLE);
+    esp_ble_mesh_model_publish(device_info_client.model, DEVICE_INFO_MODEL_OPCODE_GET, 0, NULL, MSG_ROLE);
 }
 
-static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t *param) {
+static void ipac_uart_cmd_send_device_info_status(esp_ble_mesh_model_cb_param_t *param) {
     ipac_ble_mesh_msg_send_device_info_status_t msg = {0};
 
     msg.opcode = OPCODE_SENSOR_DATA_STATUS;
@@ -856,7 +1195,7 @@ static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
         prov_link_close(param->provisioner_prov_link_close.bearer, param->provisioner_prov_link_close.reason);
         break;
     case ESP_BLE_MESH_PROVISIONER_PROV_COMPLETE_EVT:
-        ipac_uart_cmd_send_add_device_complete(param);
+        ipac_uart_cmd_send_add_device_complete((void*) param, false);
         break;
     case ESP_BLE_MESH_PROVISIONER_ADD_UNPROV_DEV_COMP_EVT:
         break;
@@ -972,8 +1311,10 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
         case ESP_BLE_MESH_MODEL_OP_COMPOSITION_DATA_STATUS:
             // ESP_LOG_BUFFER_HEX("composition data %s", param->status_cb.comp_data_status.composition_data->data,
                             //    param->status_cb.comp_data_status.composition_data->len);
+            ipac_uart_cmd_composition_data_status(param);
             break;
         case ESP_BLE_MESH_MODEL_OP_APP_KEY_STATUS:
+            // ipac_uart_cmd_send_app_key_status(param);
             break;
         default:
             break;
@@ -1044,15 +1385,115 @@ void example_ble_mesh_send_vendor_message(bool resend)
     if (resend == false) {
         // store.vnd_tid++;
     }
+}
 
-    // err = esp_ble_mesh_client_model_send_msg(vendor_client.model, &ctx, opcode,
-    //         sizeof(store.vnd_tid), (uint8_t *)&store.vnd_tid, MSG_TIMEOUT, true, MSG_ROLE);
-    // if (err != ESP_OK) {
-    //     // ESP_LOGE(TAG, "Failed to send vendor message 0x%06" PRIx32, opcode);
-    //     return;
-    // }
+static void example_ble_mesh_remote_prov_client_callback(esp_ble_mesh_rpr_client_cb_event_t event,
+                                        esp_ble_mesh_rpr_client_cb_param_t *param)
+{
+    static uint8_t remote_dev_uuid[16] = {0};
+    esp_ble_mesh_rpr_client_msg_t msg = {0};
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_err_t err = ESP_OK;
+    uint16_t addr = 0;
 
-    // mesh_example_info_store(); /* Store proper mesh example info */
+    switch (event) {
+        case ESP_BLE_MESH_RPR_CLIENT_SEND_COMP_EVT:
+            // ESP_LOGW(TAG, "Remote Prov Client Send Comp, err_code %d", param->send.err_code);
+            break;
+        case ESP_BLE_MESH_RPR_CLIENT_SEND_TIMEOUT_EVT:
+            // ESP_LOGW(TAG, "Remote Prov Client Send Timeout, opcode 0x%04x, to 0x%04x",
+            //          param->send.params->opcode, param->send.params->ctx.addr);
+            break;
+        case ESP_BLE_MESH_RPR_CLIENT_RECV_PUB_EVT:
+        case ESP_BLE_MESH_RPR_CLIENT_RECV_RSP_EVT:
+            // ESP_LOGW(TAG, "Remote Prov Client Recv RSP, opcode 0x%04x, from 0x%04x",
+            //          param->recv.params->ctx.recv_op, param->recv.params->ctx.addr);
+            switch (param->recv.params->ctx.recv_op) {
+                case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_CAPS_STATUS:
+                    break;
+                case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_STATUS:
+                    switch (param->recv.params->ctx.recv_op) {
+                        case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_GET: 
+                            ipac_uart_cmd_send_rpr_scan_status(OPCODE_RPR_SCAN_GET, param);
+                            break;
+                        case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_START:
+                            ipac_uart_cmd_send_rpr_scan_status(OPCODE_RPR_SCAN_START, param);
+                            break;
+                        case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_STOP:
+                            ipac_uart_cmd_send_rpr_scan_status(OPCODE_RPR_SCAN_STOP, param);
+                            break;
+                    }
+                    break;
+                case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_REPORT:
+                    ipac_uart_cmd_send_rpr_scan_report(param);
+                    break;
+                case ESP_BLE_MESH_MODEL_OP_RPR_EXT_SCAN_REPORT:
+                    break;
+                case ESP_BLE_MESH_MODEL_OP_RPR_LINK_STATUS:
+                    switch (param->recv.params->ctx.recv_op) {
+                        case ESP_BLE_MESH_MODEL_OP_RPR_LINK_GET:
+                            ipac_uart_cmd_send_rpr_link_status(OPCODE_RPR_LINK_GET, param);
+                            break;
+                        case ESP_BLE_MESH_MODEL_OP_RPR_LINK_OPEN: 
+                            ipac_uart_cmd_send_rpr_link_status(OPCODE_RPR_LINK_OPEN, param);
+                            break;
+                        case ESP_BLE_MESH_MODEL_OP_RPR_LINK_CLOSE: 
+                            ipac_uart_cmd_send_rpr_link_status(OPCODE_RPR_LINK_CLOSE, param);
+                            break;
+                        default:
+                            ESP_LOGW(TAG, "Unknown Process opcode 0x%04x:%d", cur_rpr_cli_opcode,__LINE__);
+                            break;
+                        }
+                        break;
+                case ESP_BLE_MESH_MODEL_OP_RPR_LINK_REPORT:
+                    ipac_uart_cmd_send_rpr_link_report(param);
+                    break;
+                case ESP_BLE_MESH_MODEL_OP_RPR_LINK_CLOSE:      // no need
+                    switch (param->recv.val.link_report.status)
+                    {
+                    case ESP_BLE_MESH_RPR_STATUS_LINK_CLOSED_BY_CLIENT:
+                        ESP_LOGI(TAG, "Link closed by client");
+                        break;
+                    case ESP_BLE_MESH_RPR_STATUS_LINK_CLOSED_BY_DEVICE:
+                        ESP_LOGI(TAG, "Link closed by device");
+                        break;
+                    case ESP_BLE_MESH_RPR_STATUS_LINK_CLOSED_BY_SERVER:
+                        ESP_LOGI(TAG, "Link closed by server");
+                        break;
+                    case ESP_BLE_MESH_RPR_STATUS_LINK_CLOSED_AS_CANNOT_RECEIVE_PDU:
+                        ESP_LOGI(TAG, "Link closed as cannot receive pdu");
+                        break;
+                    case ESP_BLE_MESH_RPR_STATUS_LINK_CLOSED_AS_CANNOT_SEND_PDU:
+                        ESP_LOGI(TAG, "Link closed as cannot send pdu");
+                        break;
+                    case ESP_BLE_MESH_RPR_STATUS_LINK_CLOSED_AS_CANNOT_DELIVER_PDU_REPORT:
+                        ESP_LOGI(TAG, "Link closed as cannot send pdu report");
+                        break;
+                    default:
+                        ESP_LOGW(TAG, "Unknown link close status, %d", param->recv.val.link_report.status);
+                        break;
+                    }
+                    break;
+                default:
+                    ESP_LOGW(TAG, "Unknown rocess opcode 0x%04x:%d", cur_rpr_cli_opcode,__LINE__);
+                    break;
+            }
+            break;
+        case ESP_BLE_MESH_RPR_CLIENT_ACT_COMP_EVT:          // start remote prov successfully
+            ipac_uart_cmd_send_remote_prov_ack(param);
+            break;
+        case ESP_BLE_MESH_RPR_CLIENT_LINK_OPEN_EVT:
+            // ESP_LOGW(TAG, "Remote Prov Client Link Open");
+            break;
+        case ESP_BLE_MESH_RPR_CLIENT_LINK_CLOSE_EVT:
+            // ESP_LOGW(TAG, "Remote Prov Client Link Close");
+            break;
+        case ESP_BLE_MESH_RPR_CLIENT_PROV_COMP_EVT:
+            ipac_uart_cmd_send_add_device_complete((void*) param, true);
+            break;
+    default:
+        break;
+    }
 }
 
 static void ipac_ble_mesh_sensor_cli_model_cb(esp_ble_mesh_model_cb_event_t event,
@@ -1097,6 +1538,7 @@ static esp_err_t ble_mesh_init(void)
     esp_ble_mesh_register_prov_callback(example_ble_mesh_provisioning_cb);
     esp_ble_mesh_register_config_client_callback(example_ble_mesh_config_client_cb);
     // esp_ble_mesh_register_generic_client_callback(example_ble_mesh_generic_client_cb);
+    esp_ble_mesh_register_rpr_client_callback(example_ble_mesh_remote_prov_client_callback);
     esp_ble_mesh_register_custom_model_callback(ipac_ble_mesh_sensor_cli_model_cb);
 
     err = esp_ble_mesh_init(&provision, &composition);
@@ -1105,12 +1547,12 @@ static esp_err_t ble_mesh_init(void)
         return err;
     }
 
-    err = esp_ble_mesh_client_model_init(sensor_cli_model);
+    err = esp_ble_mesh_client_model_init(sensor_client.model);
     if (err) {
         return err;
     }
 
-    err = esp_ble_mesh_client_model_init(device_info_cli_model);
+    err = esp_ble_mesh_client_model_init(device_info_client.model);
     if (err) {
         return err;
     }
