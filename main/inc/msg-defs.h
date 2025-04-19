@@ -246,20 +246,19 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_rpr_link_report {
     uint16_t unicast;
     uint8_t status;                                     /*!< Status of the provisioning bearer or the NPPI */
     uint8_t rpr_state;                                  /*!< Remote Provisioning Link state */
-    bool    reason_en;                                  /*!< Indicate if Link close Reason code is present */
+    uint8_t reason_en;                                  /*!< Indicate if Link close Reason code is present */
     uint8_t reason;                                     /*!< Link close Reason code (Optional) */
     uint8_t checksum;
 } ipac_ble_mesh_msg_send_rpr_link_report_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_remote_prov {
-    uint8_t opcode;
-    uint8_t unicast;
+    uint16_t unicast;
     uint8_t checksum;
 } ipac_ble_mesh_msg_recv_remote_prov_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_remote_prov_ack {
     uint8_t opcode;
-    uint8_t unicast;
+    uint16_t unicast;
     uint8_t status;
     uint8_t checksum;
 } ipac_ble_mesh_msg_send_remote_prov_ack_t;
@@ -338,9 +337,9 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status
 #define MSG_SIZE_MODEL_SUB_STATUS               sizeof(ipac_ble_mesh_msg_send_model_pub_sub_status_t)
 #define MSG_SIZE_RPR_SCAN_STATUS                sizeof(ipac_ble_mesh_msg_send_rpr_scan_status_t)
 #define MSG_SIZE_RPR_SCAN_REPORT                sizeof(ipac_ble_mesh_msg_send_rpr_scan_report_t)
-#define MSG_SIZE_RPR_LINK_STATUS                sizeof(ipac_ble_mesh_msg_send_rpr_scan_status_t)
-#define MSG_SIZE_RPR_LINK_REPORT                sizeof(ipac_ble_mesh_msg_send_rpr_scan_report_t)
-#define MSG_SIZE_REMOTE_PROV_ACK            sizeof(ipac_ble_mesh_msg_send_remote_prov_ack_t)
+#define MSG_SIZE_RPR_LINK_STATUS                sizeof(ipac_ble_mesh_msg_send_rpr_link_status_t)
+#define MSG_SIZE_RPR_LINK_REPORT                sizeof(ipac_ble_mesh_msg_send_rpr_link_report_t)
+#define MSG_SIZE_REMOTE_PROV_ACK                sizeof(ipac_ble_mesh_msg_send_remote_prov_ack_t)
 #define MSG_SIZE_SENSOR_DATA_STATUS             sizeof(ipac_ble_mesh_msg_send_sensor_data_status_t)
 #define MSG_SIZE_DEVICE_INFO_STATUS             sizeof(ipac_ble_mesh_msg_send_device_info_status_t)
 

@@ -983,7 +983,7 @@ static void ipac_uart_cmd_send_rpr_link_report(esp_ble_mesh_rpr_client_cb_param_
     msg.unicast = param->recv.params->ctx.addr;
     msg.status = param->recv.val.link_report.status;
     msg.rpr_state = param->recv.val.link_report.rpr_state;
-    msg.reason_en = param->recv.val.link_report.reason_en;
+    msg.reason_en = (uint8_t)(param->recv.val.link_report.reason_en);
     msg.reason = param->recv.val.link_report.reason;
     
     msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_RPR_LINK_REPORT);
