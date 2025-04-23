@@ -192,6 +192,12 @@ static void ipac_uart_cmd_recv_add_app_key(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_model_app_bind(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_model_pub_set(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_model_sub_add(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_relay_get(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_relay_set(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_proxy_get(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_proxy_set(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_friend_get(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_friend_set(void *arg, uint8_t status);
 #if CONFIG_BLE_MESH_RPR_CLI
 static void ipac_uart_cmd_recv_rpr_scan_get(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_rpr_scan_start(void *arg, uint8_t status);
@@ -221,6 +227,12 @@ static const ipac_uart_command_t uart_cmd[] = {
     {OPCODE_SET_MODEL_SUB, MSG_ARG_SIZE_SET_MODEL_SUB, ipac_uart_cmd_recv_model_sub_add},
     {OPCODE_SENSOR_DATA_GET, MSG_ARG_SIZE_SENSOR_DATA_GET, ipac_uart_cmd_recv_sensor_data_get},
     {OPCODE_DEVICE_INFO_GET, MSG_ARG_SIZE_DEVICE_INFO_GET, ipac_uart_cmd_recv_device_info_get},
+    {OPCODE_RELAY_GET, MSG_ARG_SIZE_RELAY_GET, ipac_uart_cmd_recv_relay_get},
+    {OPCODE_RELAY_SET, MSG_ARG_SIZE_RELAY_SET, ipac_uart_cmd_recv_relay_set},
+    {OPCODE_PROXY_GET, MSG_ARG_SIZE_PROXY_GET, ipac_uart_cmd_recv_proxy_get},
+    {OPCODE_PROXY_SET, MSG_ARG_SIZE_PROXY_SET, ipac_uart_cmd_recv_proxy_set},
+    {OPCODE_FRIEND_GET, MSG_ARG_SIZE_FRIEND_GET, ipac_uart_cmd_recv_friend_get},
+    {OPCODE_FRIEND_SET, MSG_ARG_SIZE_FRIEND_SET, ipac_uart_cmd_recv_friend_set},
 #if CONFIG_BLE_MESH_RPR_CLI
     {OPCODE_RPR_SCAN_START, MSG_ARG_SIZE_RPR_SCAN_START, ipac_uart_cmd_recv_rpr_scan_start},
     {OPCODE_RPR_SCAN_STOP, MSG_ARG_SIZE_RPR_SCAN_STOP, ipac_uart_cmd_recv_rpr_scan_stop},
@@ -586,6 +598,7 @@ static void ipac_uart_cmd_recv_add_app_key(void *arg, uint8_t status) {
         // error msg
         return;
     }
+
     set_state.app_key_add.net_idx = prov_key.net_idx;
     set_state.app_key_add.app_idx = prov_key.app_idx;
     memcpy(set_state.app_key_add.app_key, prov_key.app_key, ESP_BLE_MESH_OCTET16_LEN);
@@ -745,6 +758,218 @@ static void ipac_uart_cmd_send_model_sub_status(esp_ble_mesh_cfg_client_cb_param
 
     msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_MODEL_SUB_STATUS);
     uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_MODEL_SUB_STATUS);
+}
+
+static void ipac_uart_cmd_recv_relay_get(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_get_state_t get_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RELAY_GET, MSG_ARG_SIZE_RELAY_GET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_node_role_get_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_RELAY_GET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+    
+    err = esp_ble_mesh_config_client_get_state(&common, &get_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_recv_relay_set(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_set_state_t set_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_RELAY_SET, MSG_ARG_SIZE_RELAY_SET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_relay_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_RELAY_SET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+
+    set_state.relay_set.relay = ((ipac_ble_mesh_msg_recv_relay_set_t*)arg)->relay_state;
+    set_state.relay_set.relay_retransmit = ((ipac_ble_mesh_msg_recv_relay_set_t*)arg)->relay_retransmit;
+    err = esp_ble_mesh_config_client_set_state(&common, &set_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_send_relay_status(esp_ble_mesh_cfg_client_cb_param_t *param, uint8_t uart_opcode) {
+    ipac_ble_mesh_msg_send_relay_status_t msg = {
+        .opcode = uart_opcode,
+        .unicast = param->params->ctx.addr,
+        .relay_state = param->status_cb.relay_status.relay,
+        .relay_retransmit = param->status_cb.relay_status.retransmit,
+    };
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_RELAY_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_RELAY_STATUS);
+}
+
+static void ipac_uart_cmd_recv_proxy_get(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_get_state_t get_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_PROXY_GET, MSG_ARG_SIZE_PROXY_GET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_node_role_get_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_GATT_PROXY_GET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+    
+    err = esp_ble_mesh_config_client_get_state(&common, &get_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_recv_proxy_set(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_set_state_t set_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_PROXY_SET, MSG_ARG_SIZE_PROXY_SET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_proxy_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_GATT_PROXY_SET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+    
+    set_state.gatt_proxy_set.gatt_proxy = ((ipac_ble_mesh_msg_recv_proxy_set_t*)arg)->proxy_state;
+    err = esp_ble_mesh_config_client_set_state(&common, &set_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_send_proxy_status(esp_ble_mesh_cfg_client_cb_param_t *param, uint8_t uart_opcode) {
+    ipac_ble_mesh_msg_send_proxy_status_t msg = {
+        .opcode = uart_opcode,
+        .unicast = param->params->ctx.addr,
+        .proxy_state = param->status_cb.gatt_proxy_status.gatt_proxy,
+    };
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_PROXY_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_PROXY_STATUS);
+}
+
+static void ipac_uart_cmd_recv_friend_get(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_get_state_t get_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_PROXY_GET, MSG_ARG_SIZE_PROXY_GET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_node_role_get_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_FRIEND_GET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+    
+    err = esp_ble_mesh_config_client_get_state(&common, &get_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_recv_friend_set(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_set_state_t set_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_PROXY_GET, MSG_ARG_SIZE_PROXY_GET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_friend_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_FRIEND_SET);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+    
+    set_state.friend_set.friend_state = ((ipac_ble_mesh_msg_recv_friend_set_t*)arg)->friend_state;
+    err = esp_ble_mesh_config_client_set_state(&common, &set_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_send_friend_status(esp_ble_mesh_cfg_client_cb_param_t *param, uint8_t uart_opcode) {
+    ipac_ble_mesh_msg_send_friend_status_t msg = {
+        .opcode = uart_opcode,
+        .unicast = param->params->ctx.addr,
+        .friend_state = param->status_cb.friend_status.friend_state,
+    };
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_FRIEND_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_FRIEND_STATUS);
 }
 
 #if CONFIG_BLE_MESH_RPR_CLI
@@ -1280,6 +1505,15 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
             ipac_uart_cmd_composition_data_status(param);
             break;
         }
+        case ESP_BLE_MESH_MODEL_OP_RELAY_GET:
+            ipac_uart_cmd_send_relay_status(param, OPCODE_RELAY_GET);
+            break;
+        case ESP_BLE_MESH_MODEL_OP_GATT_PROXY_GET:
+            ipac_uart_cmd_send_proxy_status(param, OPCODE_PROXY_GET);
+            break;
+        case ESP_BLE_MESH_MODEL_OP_FRIEND_GET:
+            ipac_uart_cmd_send_friend_status(param, OPCODE_FRIEND_GET);
+            break;
         default:
             break;
         }
@@ -1300,6 +1534,18 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
         }
         case ESP_BLE_MESH_MODEL_OP_MODEL_SUB_ADD: {
             ipac_uart_cmd_send_model_sub_status(param);
+            break;
+        }
+        case ESP_BLE_MESH_MODEL_OP_RELAY_SET: {
+            ipac_uart_cmd_send_relay_status(param, OPCODE_RELAY_SET);
+            break;
+        }
+        case ESP_BLE_MESH_MODEL_OP_GATT_PROXY_SET: {
+            ipac_uart_cmd_send_proxy_status(param, OPCODE_PROXY_GET);
+            break;
+        }
+        case ESP_BLE_MESH_MODEL_OP_FRIEND_SET: {
+            ipac_uart_cmd_send_friend_status(param, OPCODE_FRIEND_GET);
             break;
         }
         default:
@@ -1412,7 +1658,7 @@ static void example_ble_mesh_remote_prov_client_callback(esp_ble_mesh_rpr_client
                 case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_CAPS_STATUS:
                     break;
                 case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_STATUS:
-                    switch (param->recv.params->ctx.recv_op) {
+                    switch (param->recv.params->opcode) {
                         case ESP_BLE_MESH_MODEL_OP_RPR_SCAN_GET: 
                             ipac_uart_cmd_send_rpr_scan_status(OPCODE_RPR_SCAN_GET, param);
                             break;

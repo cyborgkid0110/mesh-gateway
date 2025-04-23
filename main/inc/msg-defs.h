@@ -21,6 +21,12 @@
 #define OPCODE_RPR_LINK_OPEN            0x00
 #define OPCODE_RPR_LINK_CLOSE           0x11
 #define OPCODE_REMOTE_PROVISIONING      0x12
+#define OPCODE_RELAY_GET                0x13
+#define OPCODE_RELAY_SET                0x14
+#define OPCODE_PROXY_GET                0x15
+#define OPCODE_PROXY_SET                0x16
+#define OPCODE_FRIEND_GET               0x17
+#define OPCODE_FRIEND_SET               0x18
 
 #define OPCODE_SCAN_RESULT              0x40
 #define OPCODE_SEND_NEW_NODE_INFO       0x41
@@ -190,6 +196,53 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_model_pub_sub_stat
     uint8_t checksum;
 } ipac_ble_mesh_msg_send_model_pub_sub_status_t;
 
+/* Node Role Configuration */
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_node_role_get {
+    uint16_t unicast;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_recv_node_role_get_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_relay_set {
+    uint16_t unicast;
+    uint8_t relay_state;
+    uint8_t relay_retransmit;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_recv_relay_set_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_relay_status {
+    uint8_t opcode;
+    uint16_t unicast;
+    uint8_t relay_state;
+    uint8_t relay_retransmit;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_send_relay_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_proxy_set {
+    uint16_t unicast;
+    uint8_t proxy_state;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_recv_proxy_set_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_proxy_status {
+    uint8_t opcode;
+    uint16_t unicast;
+    uint8_t proxy_state;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_send_proxy_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_friend_set {
+    uint16_t unicast;
+    uint8_t friend_state;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_recv_friend_set_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_friend_status {
+    uint8_t opcode;
+    uint16_t unicast;
+    uint8_t friend_state;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_send_friend_status_t;
+
 #if CONFIG_BLE_MESH_RPR_CLI
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_rpr_scan {
     uint16_t unicast;
@@ -317,12 +370,20 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status
 #define MSG_ARG_SIZE_SET_MODEL_SUB              sizeof(ipac_ble_mesh_msg_recv_model_pub_sub_set_t)
 #define MSG_ARG_SIZE_SENSOR_DATA_GET            MSG_ARG_NONE
 #define MSG_ARG_SIZE_DEVICE_INFO_GET            MSG_ARG_NONE
+#define MSG_ARG_SIZE_RELAY_GET                  sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
+#define MSG_ARG_SIZE_RELAY_SET                  sizeof(ipac_ble_mesh_msg_send_relay_status_t)
+#define MSG_ARG_SIZE_PROXY_GET                  sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
+#define MSG_ARG_SIZE_PROXY_SET                  sizeof(ipac_ble_mesh_msg_send_proxy_status_t)
+#define MSG_ARG_SIZE_FRIEND_GET                 sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
+#define MSG_ARG_SIZE_FRIEND_SET                 sizeof(ipac_ble_mesh_msg_send_friend_status_t)
+#if CONFIG_BLE_MESH_RPR_CLI
 #define MSG_ARG_SIZE_RPR_SCAN_GET               sizeof(ipac_ble_mesh_msg_recv_rpr_scan_t)
 #define MSG_ARG_SIZE_RPR_SCAN_START             sizeof(ipac_ble_mesh_msg_recv_rpr_scan_t)
 #define MSG_ARG_SIZE_RPR_SCAN_STOP              sizeof(ipac_ble_mesh_msg_recv_rpr_scan_t)
 #define MSG_ARG_SIZE_RPR_LINK_GET               sizeof(ipac_ble_mesh_msg_recv_rpr_link_get_t)
 #define MSG_ARG_SIZE_RPR_LINK_OPEN              sizeof(ipac_ble_mesh_msg_recv_rpr_link_open_t)
 #define MSG_ARG_SIZE_RPR_LINK_CLOSE             sizeof(ipac_ble_mesh_msg_recv_rpr_link_close_t)
+#endif
 #define MSG_ARG_SIZE_REMOTE_PROV                sizeof(ipac_ble_mesh_msg_recv_remote_prov_t)
 
 #define MSG_SIZE_GET_LOCAL_KEYS                 sizeof(ipac_ble_mesh_msg_send_get_local_keys_t)
@@ -335,11 +396,16 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status
 #define MSG_SIZE_MODEL_APP_STATUS               sizeof(ipac_ble_mesh_msg_send_model_app_status_t)
 #define MSG_SIZE_MODEL_PUB_STATUS               sizeof(ipac_ble_mesh_msg_send_model_pub_sub_status_t)
 #define MSG_SIZE_MODEL_SUB_STATUS               sizeof(ipac_ble_mesh_msg_send_model_pub_sub_status_t)
+#define MSG_SIZE_RELAY_STATUS                   sizeof(ipac_ble_mesh_msg_send_relay_status_t)
+#define MSG_SIZE_PROXY_STATUS                   sizeof(ipac_ble_mesh_msg_send_proxy_status_t)
+#define MSG_SIZE_FRIEND_STATUS                  sizeof(ipac_ble_mesh_msg_send_friend_status_t)
+#if CONFIG_BLE_MESH_RPR_CLI
 #define MSG_SIZE_RPR_SCAN_STATUS                sizeof(ipac_ble_mesh_msg_send_rpr_scan_status_t)
 #define MSG_SIZE_RPR_SCAN_REPORT                sizeof(ipac_ble_mesh_msg_send_rpr_scan_report_t)
 #define MSG_SIZE_RPR_LINK_STATUS                sizeof(ipac_ble_mesh_msg_send_rpr_link_status_t)
 #define MSG_SIZE_RPR_LINK_REPORT                sizeof(ipac_ble_mesh_msg_send_rpr_link_report_t)
 #define MSG_SIZE_REMOTE_PROV_ACK                sizeof(ipac_ble_mesh_msg_send_remote_prov_ack_t)
+#endif
 #define MSG_SIZE_SENSOR_DATA_STATUS             sizeof(ipac_ble_mesh_msg_send_sensor_data_status_t)
 #define MSG_SIZE_DEVICE_INFO_STATUS             sizeof(ipac_ble_mesh_msg_send_device_info_status_t)
 
