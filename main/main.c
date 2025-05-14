@@ -24,11 +24,11 @@
 #include "esp_ble_mesh_provisioning_api.h"
 #include "esp_ble_mesh_networking_api.h"
 #include "esp_ble_mesh_config_model_api.h"
-#include "esp_ble_mesh_generic_model_api.h"
 #include "esp_ble_mesh_rpr_model_api.h"
 
 #include "inc/msg-defs.h"
 #include "inc/model.h"
+#include "inc/buffer.h"
 
 #include "ble_mesh_example_init.h"
 
@@ -68,6 +68,8 @@
 /********************************************************************
  * Local variables
  ********************************************************************/
+static ipac_uart_cmd_queue_t cmd_queue;
+
 static struct esp_ble_mesh_key {
     uint16_t net_idx;
     uint16_t app_idx;
@@ -134,8 +136,9 @@ static esp_ble_mesh_client_t sensor_client = {
 
 static esp_ble_mesh_model_op_t sensor_model_op[] = {
     // message minimum length is 2 octets
-    ESP_BLE_MESH_MODEL_OP(SENSOR_MODEL_OPCODE_STATUS,
-                        sizeof(ipac_ble_mesh_model_msg_sensor_data_status_t)),
+    // ESP_BLE_MESH_MODEL_OP(SENSOR_MODEL_OPCODE_STATUS,
+    //                     sizeof(ipac_ble_mesh_model_msg_sensor_data_status_t)),
+    ESP_BLE_MESH_MODEL_OP(SENSOR_MODEL_OPCODE_STATUS, 2),
     ESP_BLE_MESH_MODEL_OP_END,
 };
 
@@ -161,10 +164,10 @@ static esp_ble_mesh_model_op_t device_info_model_op[] = {
 ESP_BLE_MESH_MODEL_PUB_DEFINE(device_info_cli_pub, 1, MSG_ROLE);
 
 static esp_ble_mesh_model_t vnd_models[] = {
-    ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, DEVICE_INFO_MODEL_ID_CLIENT,
-    device_info_model_op, &device_info_cli_pub, &device_info_client),
     ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, SENSOR_MODEL_ID_CLIENT,
-    sensor_model_op, &sensor_cli_pub, &sensor_client),
+    sensor_model_op, NULL, &sensor_client),
+    ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, DEVICE_INFO_MODEL_ID_CLIENT,
+        device_info_model_op, NULL, &device_info_client),
 };
 
 // static esp_ble_mesh_model_t* device_info_cli_model = &vnd_models[0];
@@ -1263,6 +1266,7 @@ static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t 
 
     msg.opcode = OPCODE_SENSOR_DATA_STATUS;
     msg.unicast = param->model_operation.ctx->addr;
+    msg.id = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->id;
     msg.temp = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->temp;
     msg.humid = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->humid;
     msg.light = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->light;
@@ -1304,7 +1308,7 @@ static void test_simple_msg(void *arg, uint8_t status) {
 }
 #endif /* End test UART communication */
 
-static void serial_com_task() {
+static void serial_com_init() {
     /* Configure parameters of an UART driver,
     * communication pins and install the driver */
     uart_config_t uart_config = {
@@ -1324,7 +1328,10 @@ static void serial_com_task() {
     ESP_ERROR_CHECK(uart_driver_install(UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
     ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(UART_PORT_NUM, UART_TXD, UART_RXD, UART_RTS, UART_CTS));
+}
 
+static void serial_com_task() {
+    ipac_uart_cmd_buffer_t cmd_item = {0};
     // Configure a temporary buffer for the incoming command
     uint8_t *command = (uint8_t *) malloc(BUF_SIZE);
 
@@ -1338,12 +1345,16 @@ static void serial_com_task() {
         // Check if command is match
         for (int i = 0; i < ARRAY_SIZE(uart_cmd); i++) {
             if (uart_cmd[i].opcode == command[0]) {
+                cmd_item.opcode = uart_cmd[i].opcode;
+                cmd_item.handler = uart_cmd[i].handler;
                 if (uart_cmd[i].msg_arg_size == MSG_ARG_NONE) {
-                    uart_cmd[i].handler((void*) command, PACKET_OK);
-                    break;
+                    cmd_item.len = 0;
+                    // uart_cmd[i].handler((void*) command, PACKET_OK);
                 }
-                int len = uart_read_bytes(UART_PORT_NUM, command, uart_cmd[i].msg_arg_size, 1000 / portTICK_PERIOD_MS);
-                uart_cmd[i].handler((void*) command, PACKET_OK);
+                int len = uart_read_bytes(UART_PORT_NUM, cmd_item.arg, uart_cmd[i].msg_arg_size, 1000 / portTICK_PERIOD_MS);
+                cmd_item.len = (len >= 0) ? len : 0;
+                ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
+                break;
                 // if (len != uart_cmd[i].msg_arg_size) {
                 //     uart_cmd[i].handler((void*) command, PACKET_LOSS);
                 //     break;
@@ -1355,6 +1366,13 @@ static void serial_com_task() {
             }
         }
     }
+    free(command);
+}
+
+static void ipac_uart_cmd_handle_task() {
+    uint8_t status;
+    ipac_uart_cmd_buffer_t cmd = ipac_uart_cmd_queue_dequeue(&cmd_queue, &status);  
+    cmd.handler((void*) cmd.arg, PACKET_OK);
 }
 
 /********************************************************************
@@ -1433,7 +1451,7 @@ static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
             prov_key.app_idx = param->provisioner_add_app_key_comp.app_idx;
             // when adding vendor model to provisioner, bind them here
             err = esp_ble_mesh_provisioner_bind_app_key_to_local_model(PROV_OWN_ADDR, prov_key.app_idx,
-                    ESP_BLE_MESH_MODEL_ID_GEN_ONOFF_CLI, ESP_BLE_MESH_CID_NVAL);
+                    SENSOR_MODEL_ID_CLIENT, CID_ESP);
             if (err != ESP_OK) {
                 return;
             }
@@ -1484,19 +1502,10 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
     opcode = param->params->opcode;
     addr = param->params->ctx.addr;
 
-    // ESP_LOGI(TAG, "%s, error_code = 0x%02x, event = 0x%02x, addr: 0x%04x, opcode: 0x%04" PRIx32,
-            //  __func__, param->error_code, event, param->params->ctx.addr, opcode);
-
     if (param->error_code) {
         // ESP_LOGE(TAG, "Send config client message failed, opcode 0x%04" PRIx32, opcode);
         return;
     }
-
-    // node = example_ble_mesh_get_node_info(addr);
-    // if (!node) {
-    //     // ESP_LOGE(TAG, "%s: Get node info failed", __func__);
-    //     return;
-    // }
 
     switch (event) {
     case ESP_BLE_MESH_CFG_CLIENT_GET_STATE_EVT:
@@ -1745,10 +1754,17 @@ static void example_ble_mesh_remote_prov_client_callback(esp_ble_mesh_rpr_client
 static void ipac_ble_mesh_sensor_cli_model_cb(esp_ble_mesh_model_cb_event_t event,
                                             esp_ble_mesh_model_cb_param_t *param)
 {
+    // gpio_set_level(GPIO_NUM_4, 1);
+    // vTaskDelay(100);
+    // gpio_set_level(GPIO_NUM_4, 0);
     switch (event) {
     case ESP_BLE_MESH_MODEL_OPERATION_EVT:
         // see in vendor models exp
         if (param->model_operation.opcode == SENSOR_MODEL_OPCODE_STATUS) {
+            gpio_set_level(GPIO_NUM_4, 1);
+            vTaskDelay(300);
+            gpio_set_level(GPIO_NUM_4, 0);
+            vTaskDelay(300);
             ipac_uart_cmd_send_sensor_data_status(param);
         }
         break;
@@ -1783,7 +1799,6 @@ static esp_err_t ble_mesh_init(void)
 
     esp_ble_mesh_register_prov_callback(example_ble_mesh_provisioning_cb);
     esp_ble_mesh_register_config_client_callback(example_ble_mesh_config_client_cb);
-    // esp_ble_mesh_register_generic_client_callback(example_ble_mesh_generic_client_cb);
     esp_ble_mesh_register_rpr_client_callback(example_ble_mesh_remote_prov_client_callback);
     esp_ble_mesh_register_custom_model_callback(ipac_ble_mesh_sensor_cli_model_cb);
 
@@ -1793,12 +1808,12 @@ static esp_err_t ble_mesh_init(void)
         return err;
     }
 
-    err = esp_ble_mesh_client_model_init(sensor_client.model);
+    err = esp_ble_mesh_client_model_init(&vnd_models[0]);
     if (err) {
         return err;
     }
 
-    err = esp_ble_mesh_client_model_init(device_info_client.model);
+    err = esp_ble_mesh_client_model_init(&vnd_models[1]);
     if (err) {
         return err;
     }
@@ -1823,6 +1838,17 @@ static esp_err_t ble_mesh_init(void)
     // ESP_LOGI(TAG, "BLE Mesh Provisioner initialized");
 
     return err;
+}
+
+static void gpio_init() {
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << GPIO_NUM_4),
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLDOWN_DISABLE,
+    };
+    gpio_config(&io_conf);
 }
 
 void app_main(void)
@@ -1851,6 +1877,16 @@ void app_main(void)
     if (err) {
         // ESP_LOGE(TAG, "Bluetooth mesh init failed (err %d)", err);
     }
-    /* Run communication handling task */
+
+    ipac_uart_cmd_queue_init(&cmd_queue);
+    serial_com_init();
+    gpio_init();
+
+    gpio_set_level(GPIO_NUM_4, 1);
+    vTaskDelay(200);
+    gpio_set_level(GPIO_NUM_4, 0);
+
+    /* Run command handling task */
     xTaskCreate(serial_com_task, "serial_com_task", TASK_STACK_SIZE, NULL, 10, NULL);
+    xTaskCreate(ipac_uart_cmd_handle_task, "handle_task", TASK_STACK_SIZE, NULL, 10, NULL);
 }

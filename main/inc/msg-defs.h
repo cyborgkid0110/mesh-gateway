@@ -318,6 +318,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_remote_prov_ack {
 #endif
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_sensor_data_status {
+    uint16_t id;
     float temp;             // 4 bytes
     float humid;            // 4 bytes
     uint16_t light;         // 2 bytes
@@ -329,6 +330,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_sensor_data_statu
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_sensor_data_status {
     uint8_t opcode;         // 1 byte
+    uint16_t id;
     uint16_t unicast;       // 2 bytes
     float temp;             // 4 bytes
     float humid;            // 4 bytes
