@@ -151,7 +151,6 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_common_target_info {
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_add_app_key {
     uint16_t unicast;
-    uint8_t app_key[16];
     uint8_t checksum;
 } ipac_ble_mesh_msg_recv_add_app_key_t;
 

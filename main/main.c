@@ -18,6 +18,7 @@
 
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_system.h"
 
 #include "esp_ble_mesh_defs.h"
 #include "esp_ble_mesh_common_api.h"
@@ -25,6 +26,7 @@
 #include "esp_ble_mesh_networking_api.h"
 #include "esp_ble_mesh_config_model_api.h"
 #include "esp_ble_mesh_rpr_model_api.h"
+#include "esp_ble_mesh_local_data_operation_api.h"
 
 #include "inc/msg-defs.h"
 #include "inc/model.h"
@@ -42,6 +44,7 @@
 #define LED_ON              0x1
 
 #define PROV_OWN_ADDR       0x0001
+#define GROUP_ADDRESS       0xC000
 
 #define MSG_SEND_TTL        3
 #define MSG_TIMEOUT         0
@@ -142,7 +145,7 @@ static esp_ble_mesh_model_op_t sensor_model_op[] = {
     ESP_BLE_MESH_MODEL_OP_END,
 };
 
-ESP_BLE_MESH_MODEL_PUB_DEFINE(sensor_cli_pub, 1, MSG_ROLE);
+// ESP_BLE_MESH_MODEL_PUB_DEFINE(sensor_cli_pub, 1, MSG_ROLE);
 
 /* Device Info Client Model definitions */
 static const esp_ble_mesh_client_op_pair_t device_info_model_op_pair[] = {
@@ -161,7 +164,7 @@ static esp_ble_mesh_model_op_t device_info_model_op[] = {
     ESP_BLE_MESH_MODEL_OP_END,
 };
 
-ESP_BLE_MESH_MODEL_PUB_DEFINE(device_info_cli_pub, 1, MSG_ROLE);
+// ESP_BLE_MESH_MODEL_PUB_DEFINE(device_info_cli_pub, 1, MSG_ROLE);
 
 static esp_ble_mesh_model_t vnd_models[] = {
     ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, SENSOR_MODEL_ID_CLIENT,
@@ -415,7 +418,7 @@ static void ipac_uart_cmd_recv_add_device(void *arg, uint8_t status) {
         // error msg
         return;
     }
-    
+
     if (ipac_cal_checksum(arg, OPCODE_ADD_UNPROV_DEV, MSG_ARG_SIZE_ADD_UNPROV_DEV) != (uint8_t)0x00)
     {
         // error msg
@@ -1261,19 +1264,32 @@ static void ipac_uart_cmd_recv_sensor_data_get(void *arg, uint8_t status) {
     esp_ble_mesh_model_publish(sensor_client.model, SENSOR_MODEL_OPCODE_GET, 0, NULL, MSG_ROLE);
 }
 
-static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t *param) {
+static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t *param, bool publish) {
     ipac_ble_mesh_msg_send_sensor_data_status_t msg = {0};
 
     msg.opcode = OPCODE_SENSOR_DATA_STATUS;
-    msg.unicast = param->model_operation.ctx->addr;
-    msg.id = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->id;
-    msg.temp = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->temp;
-    msg.humid = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->humid;
-    msg.light = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->light;
-    msg.co2 = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->co2;
-    msg.motion = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->motion;
-    msg.dust = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->dust;
-    msg.battery = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->battery;
+    if (publish == false) {
+        msg.unicast = param->model_operation.ctx->addr;
+        msg.id = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->id;
+        msg.temp = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->temp;
+        msg.humid = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->humid;
+        msg.light = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->light;
+        msg.co2 = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->co2;
+        msg.motion = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->motion;
+        msg.dust = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->dust;
+        msg.battery = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->model_operation.msg))->battery;
+    }
+    else {
+        msg.unicast = param->client_recv_publish_msg.ctx->addr;
+        msg.id = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->id;
+        msg.temp = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->temp;
+        msg.humid = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->humid;
+        msg.light = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->light;
+        msg.co2 = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->co2;
+        msg.motion = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->motion;
+        msg.dust = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->dust;
+        msg.battery = ((ipac_ble_mesh_model_msg_sensor_data_status_t*)(param->client_recv_publish_msg.msg))->battery;
+    }
     
     msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_SENSOR_DATA_STATUS);
     uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_SENSOR_DATA_STATUS);
@@ -1333,46 +1349,49 @@ static void serial_com_init() {
 static void serial_com_task() {
     ipac_uart_cmd_buffer_t cmd_item = {0};
     // Configure a temporary buffer for the incoming command
-    uint8_t *command = (uint8_t *) malloc(BUF_SIZE);
+    // uint8_t *command = (uint8_t *) malloc(BUF_SIZE);
+    uint8_t command[BUF_SIZE] = {0};
+    // Read data from the UART
+    // memset(command, 0, BUF_SIZE);
+    
+    int len = uart_read_bytes(UART_PORT_NUM, command, 1, 20 / portTICK_PERIOD_MS);
+    if (len <= 0) {
+        return;
+    }
 
-    while (1) {
-        // Read data from the UART
-        memset(command, 0, BUF_SIZE);
-        int len = uart_read_bytes(UART_PORT_NUM, command, 1, 20 / portTICK_PERIOD_MS);
-        if (len <= 0) {
-            continue;
-        }
-        // Check if command is match
-        for (int i = 0; i < ARRAY_SIZE(uart_cmd); i++) {
-            if (uart_cmd[i].opcode == command[0]) {
-                cmd_item.opcode = uart_cmd[i].opcode;
-                cmd_item.handler = uart_cmd[i].handler;
-                if (uart_cmd[i].msg_arg_size == MSG_ARG_NONE) {
-                    cmd_item.len = 0;
-                    // uart_cmd[i].handler((void*) command, PACKET_OK);
-                }
-                int len = uart_read_bytes(UART_PORT_NUM, cmd_item.arg, uart_cmd[i].msg_arg_size, 1000 / portTICK_PERIOD_MS);
-                cmd_item.len = (len >= 0) ? len : 0;
+    // Check if command is match
+    for (int i = 0; i < ARRAY_SIZE(uart_cmd); i++) {
+        if (uart_cmd[i].opcode == command[0]) {
+            cmd_item.opcode = uart_cmd[i].opcode;
+            cmd_item.handler = uart_cmd[i].handler;
+            if (uart_cmd[i].msg_arg_size == MSG_ARG_NONE) {
+                cmd_item.len = MSG_ARG_NONE;
                 ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
                 break;
-                // if (len != uart_cmd[i].msg_arg_size) {
-                //     uart_cmd[i].handler((void*) command, PACKET_LOSS);
-                //     break;
-                // }
-                // else {
-                //     uart_cmd[i].handler((void*) command, PACKET_OK);
-                //     break;
-                // }
             }
+            int len = uart_read_bytes(UART_PORT_NUM, cmd_item.arg, uart_cmd[i].msg_arg_size, 1000 / portTICK_PERIOD_MS);
+            if (len == uart_cmd[i].msg_arg_size) {
+                cmd_item.len = uart_cmd[i].msg_arg_size;
+                ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
+            }
+            break;
         }
     }
-    free(command);
 }
 
 static void ipac_uart_cmd_handle_task() {
-    uint8_t status;
-    ipac_uart_cmd_buffer_t cmd = ipac_uart_cmd_queue_dequeue(&cmd_queue, &status);  
-    cmd.handler((void*) cmd.arg, PACKET_OK);
+    ipac_uart_cmd_buffer_t cmd;
+    uint8_t status = ipac_uart_cmd_queue_dequeue(&cmd_queue, &cmd);
+    if (status == 0) {
+        cmd.handler((void*) cmd.arg, PACKET_OK);
+    }
+}
+
+static void main_handle_task() {
+    while(1) {
+        serial_com_task();
+        ipac_uart_cmd_handle_task();
+    }
 }
 
 /********************************************************************
@@ -1445,9 +1464,8 @@ static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
     case ESP_BLE_MESH_PROVISIONER_SET_DEV_UUID_MATCH_COMP_EVT:
         break;
     case ESP_BLE_MESH_PROVISIONER_ADD_LOCAL_APP_KEY_COMP_EVT: {
-        // ESP_LOGI(TAG, "ESP_BLE_MESH_PROVISIONER_ADD_LOCAL_APP_KEY_COMP_EVT, err_code %d", param->provisioner_add_app_key_comp.err_code);
         if (param->provisioner_add_app_key_comp.err_code == ESP_OK) {
-            esp_err_t err = 0;
+            esp_err_t err = ESP_OK;
             prov_key.app_idx = param->provisioner_add_app_key_comp.app_idx;
             // when adding vendor model to provisioner, bind them here
             err = esp_ble_mesh_provisioner_bind_app_key_to_local_model(PROV_OWN_ADDR, prov_key.app_idx,
@@ -1459,7 +1477,14 @@ static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
         break;
     }
     case ESP_BLE_MESH_PROVISIONER_BIND_APP_KEY_TO_MODEL_COMP_EVT:
-        // ESP_LOGI(TAG, "ESP_BLE_MESH_PROVISIONER_BIND_APP_KEY_TO_MODEL_COMP_EVT, err_code %d", param->provisioner_bind_app_key_to_model_comp.err_code);
+        if (param->node_bind_app_key_to_model_comp.err_code == ESP_OK) {
+            esp_err_t err = ESP_OK;
+            err = esp_ble_mesh_model_subscribe_group_addr(PROV_OWN_ADDR, CID_ESP, SENSOR_MODEL_ID_CLIENT, GROUP_ADDRESS);
+            if (err != ESP_OK) {
+                 return;
+            }
+        }
+        // gpio_set_level(GPIO_NUM_2, 1);
         break;
     case ESP_BLE_MESH_PROVISIONER_UPDATE_LOCAL_NET_KEY_COMP_EVT: 
         if (param->provisioner_update_net_key_comp.err_code != ESP_OK) {
@@ -1754,18 +1779,11 @@ static void example_ble_mesh_remote_prov_client_callback(esp_ble_mesh_rpr_client
 static void ipac_ble_mesh_sensor_cli_model_cb(esp_ble_mesh_model_cb_event_t event,
                                             esp_ble_mesh_model_cb_param_t *param)
 {
-    // gpio_set_level(GPIO_NUM_4, 1);
-    // vTaskDelay(100);
-    // gpio_set_level(GPIO_NUM_4, 0);
     switch (event) {
     case ESP_BLE_MESH_MODEL_OPERATION_EVT:
         // see in vendor models exp
         if (param->model_operation.opcode == SENSOR_MODEL_OPCODE_STATUS) {
-            gpio_set_level(GPIO_NUM_4, 1);
-            vTaskDelay(300);
-            gpio_set_level(GPIO_NUM_4, 0);
-            vTaskDelay(300);
-            ipac_uart_cmd_send_sensor_data_status(param);
+            ipac_uart_cmd_send_sensor_data_status(param, false);
         }
         break;
     case ESP_BLE_MESH_MODEL_SEND_COMP_EVT:
@@ -1778,6 +1796,8 @@ static void ipac_ble_mesh_sensor_cli_model_cb(esp_ble_mesh_model_cb_event_t even
         break;
     case ESP_BLE_MESH_CLIENT_MODEL_RECV_PUBLISH_MSG_EVT:
         // ESP_LOGI(TAG, "Receive publish message 0x%06" PRIx32, param->client_recv_publish_msg.opcode);
+        gpio_set_level(GPIO_NUM_2, 0);
+        ipac_uart_cmd_send_sensor_data_status(param, true);
         break;
     case ESP_BLE_MESH_CLIENT_MODEL_SEND_TIMEOUT_EVT:
         // ESP_LOGW(TAG, "Client message 0x%06" PRIx32 " timeout", param->client_send_timeout.opcode);
@@ -1824,11 +1844,11 @@ static esp_err_t ble_mesh_init(void)
         return err;
     }
 
-    // err = esp_ble_mesh_provisioner_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
-    // if (err != ESP_OK) {
-    //     // ESP_LOGE(TAG, "Failed to enable mesh provisioner (err %d)", err);
-    //     return err;
-    // }
+    err = esp_ble_mesh_provisioner_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
+    if (err != ESP_OK) {
+        // ESP_LOGE(TAG, "Failed to enable mesh provisioner (err %d)", err);
+        return err;
+    }
 
     err = esp_ble_mesh_provisioner_add_local_app_key(prov_key.app_key, prov_key.net_idx, prov_key.app_idx);
     if (err != ESP_OK) {
@@ -1844,11 +1864,22 @@ static void gpio_init() {
     gpio_config_t io_conf = {
         .intr_type = GPIO_INTR_DISABLE,
         .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = (1ULL << GPIO_NUM_4),
+        .pin_bit_mask = (1ULL << GPIO_NUM_2),
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .pull_up_en = GPIO_PULLDOWN_DISABLE,
     };
     gpio_config(&io_conf);
+}
+
+static void print_reset_reason() {
+    esp_reset_reason_t reason;
+    reason = esp_reset_reason();
+    for (uint8_t i = 0; i < reason; i++) {
+        gpio_set_level(GPIO_NUM_2, 1);
+        vTaskDelay(300 / portTICK_PERIOD_MS);
+        gpio_set_level(GPIO_NUM_2, 0);
+        vTaskDelay(300 / portTICK_PERIOD_MS);
+    }
 }
 
 void app_main(void)
@@ -1863,6 +1894,16 @@ void app_main(void)
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
+    gpio_init();
+
+    // gpio_set_level(GPIO_NUM_2, 1);
+    // vTaskDelay(300 / portTICK_PERIOD_MS);
+    // gpio_set_level(GPIO_NUM_2, 0);
+    // vTaskDelay(300 / portTICK_PERIOD_MS);
+    // gpio_set_level(GPIO_NUM_2, 1);
+    // vTaskDelay(300 / portTICK_PERIOD_MS);
+    // gpio_set_level(GPIO_NUM_2, 0);
+    // vTaskDelay(300 / portTICK_PERIOD_MS);
 
     err = bluetooth_init();
     if (err) {
@@ -1880,13 +1921,9 @@ void app_main(void)
 
     ipac_uart_cmd_queue_init(&cmd_queue);
     serial_com_init();
-    gpio_init();
 
-    gpio_set_level(GPIO_NUM_4, 1);
-    vTaskDelay(200);
-    gpio_set_level(GPIO_NUM_4, 0);
+    print_reset_reason();
 
     /* Run command handling task */
-    xTaskCreate(serial_com_task, "serial_com_task", TASK_STACK_SIZE, NULL, 10, NULL);
-    xTaskCreate(ipac_uart_cmd_handle_task, "handle_task", TASK_STACK_SIZE, NULL, 10, NULL);
+    xTaskCreate(main_handle_task, "main_handle_task", TASK_STACK_SIZE * 2, NULL, 10, NULL);
 }

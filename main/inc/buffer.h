@@ -59,14 +59,17 @@ uint8_t ipac_uart_cmd_queue_enqueue(ipac_uart_cmd_queue_t *q, ipac_uart_cmd_buff
 }
 
 // Remove element from queue
-ipac_uart_cmd_buffer_t ipac_uart_cmd_queue_dequeue(ipac_uart_cmd_queue_t *q, uint8_t* status) {
+uint8_t ipac_uart_cmd_queue_dequeue(ipac_uart_cmd_queue_t *q, ipac_uart_cmd_buffer_t* buf) {
     ipac_uart_cmd_buffer_t value = {0}; // Initialize with zeros
     if (ipac_uart_cmd_queue_isEmpty(q)) {
-        *status = 1;
-        return value;
+        return 1;
     }
     
-    value = q->items[q->front];
+    // value = q->items[q->front];
+    buf->opcode = q->items[q->front].opcode;
+    memcpy(buf->arg, q->items[q->front].arg, MAX_ARG_SIZE);
+    buf->len = q->items[q->front].len;
+    buf->handler = q->items[q->front].handler;
     q->front = (q->front + 1) % BUFFER_MAX;
     q->size--;
     
@@ -75,7 +78,7 @@ ipac_uart_cmd_buffer_t ipac_uart_cmd_queue_dequeue(ipac_uart_cmd_queue_t *q, uin
         q->rear = -1;
     }
 
-    return value;
+    return 0;
 }
 
 #endif
