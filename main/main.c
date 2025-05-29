@@ -166,9 +166,30 @@ static esp_ble_mesh_model_op_t device_info_model_op[] = {
 
 // ESP_BLE_MESH_MODEL_PUB_DEFINE(device_info_cli_pub, 1, MSG_ROLE);
 
+/* AC Control Client Model definitions */
+static const esp_ble_mesh_client_op_pair_t ac_control_model_op_pair[] = {
+    { AC_CONTROL_STATE_OPCODE_GET, AC_CONTROL_STATE_OPCODE_STATUS },
+    { AC_CONTROL_STATE_OPCODE_SET, AC_CONTROL_STATE_OPCODE_STATUS },
+};
+
+static esp_ble_mesh_client_t ac_control_client = {
+    .op_pair_size = ARRAY_SIZE(ac_control_model_op_pair),
+    .op_pair = ac_control_model_op_pair,
+};
+
+static esp_ble_mesh_model_op_t ac_control_model_op[] = {
+    // message minimum length is 2 octets
+    ESP_BLE_MESH_MODEL_OP(AC_CONTROL_STATE_OPCODE_STATUS, 2),
+    ESP_BLE_MESH_MODEL_OP_END,
+};
+
+// ESP_BLE_MESH_MODEL_PUB_DEFINE(sensor_cli_pub, 1, MSG_ROLE);
+
 static esp_ble_mesh_model_t vnd_models[] = {
     ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, SENSOR_MODEL_ID_CLIENT,
     sensor_model_op, NULL, &sensor_client),
+    ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, AC_CONTROL_MODEL_CLIENT,
+        ac_control_model_op, NULL, &ac_control_client),
     ESP_BLE_MESH_VENDOR_MODEL(CID_ESP, DEVICE_INFO_MODEL_ID_CLIENT,
         device_info_model_op, NULL, &device_info_client),
 };
@@ -215,6 +236,7 @@ static void ipac_uart_cmd_recv_remote_prov(void *arg, uint8_t status);
 #endif
 static void ipac_uart_cmd_recv_sensor_data_get(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_device_info_get(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_ac_control_state_set(void *arg, uint8_t status);
 
 #if defined(DEBUG_TEST_COM) && (DEBUG_TEST_COM == 1)
 static void test_simple_msg(void *arg, uint8_t status);
@@ -232,6 +254,7 @@ static const ipac_uart_command_t uart_cmd[] = {
     {OPCODE_SET_MODEL_PUB, MSG_ARG_SIZE_SET_MODEL_PUB, ipac_uart_cmd_recv_model_pub_set},
     {OPCODE_SET_MODEL_SUB, MSG_ARG_SIZE_SET_MODEL_SUB, ipac_uart_cmd_recv_model_sub_add},
     {OPCODE_SENSOR_DATA_GET, MSG_ARG_SIZE_SENSOR_DATA_GET, ipac_uart_cmd_recv_sensor_data_get},
+    {OPCODE_AC_CONTROL_STATE_GET, MSG_ARG_SIZE_AC_CONTROL_STATE_SET, ipac_uart_cmd_recv_ac_control_state_set},
     {OPCODE_DEVICE_INFO_GET, MSG_ARG_SIZE_DEVICE_INFO_GET, ipac_uart_cmd_recv_device_info_get},
     {OPCODE_RELAY_GET, MSG_ARG_SIZE_RELAY_GET, ipac_uart_cmd_recv_relay_get},
     {OPCODE_RELAY_SET, MSG_ARG_SIZE_RELAY_SET, ipac_uart_cmd_recv_relay_set},
@@ -1295,6 +1318,60 @@ static void ipac_uart_cmd_send_sensor_data_status(esp_ble_mesh_model_cb_param_t 
     uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_SENSOR_DATA_STATUS);
 }
 
+static void ipac_uart_cmd_recv_ac_control_state_set(void *arg, uint8_t status) {
+    esp_ble_mesh_client_common_param_t common = {0};
+    ipac_ble_mesh_model_msg_ac_control_state_set_t msg = {0};
+    esp_err_t err = ESP_OK;
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_AC_CONTROL_STATE_SET, MSG_ARG_SIZE_AC_CONTROL_STATE_SET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_ac_control_state_set_t*)arg)->unicast, 
+        ac_control_client.model, AC_CONTROL_STATE_OPCODE_SET);
+
+    if (err != ESP_OK) {
+        return;
+    }
+
+    msg.device_id = ((ipac_ble_mesh_msg_recv_ac_control_state_set_t*)arg)->device_id;
+    msg.device_state = ((ipac_ble_mesh_msg_recv_ac_control_state_set_t*)arg)->device_state;
+
+    err = esp_ble_mesh_client_model_send_msg(ac_control_client.model, &(common.ctx), common.opcode, 
+        sizeof(msg), (uint8_t*) &msg, MSG_TIMEOUT, true, MSG_ROLE);
+    if (err != ESP_OK) {
+        return;
+    }
+}
+
+static void ipac_uart_cmd_send_ac_control_state_status(esp_ble_mesh_model_cb_param_t *param, uint8_t opcode, bool publish) {
+    ipac_ble_mesh_msg_send_ac_control_state_status_t msg = {0};
+
+    msg.opcode = opcode;
+    if (publish == false) {
+        msg.unicast = param->model_operation.ctx->addr;
+        msg.device_id = ((ipac_ble_mesh_model_msg_ac_control_state_status_t*)(param->model_operation.msg))->device_id;
+        msg.device_state = ((ipac_ble_mesh_model_msg_ac_control_state_status_t*)(param->model_operation.msg))->device_state;
+        msg.status = ((ipac_ble_mesh_model_msg_ac_control_state_status_t*)(param->model_operation.msg))->status;
+    }
+    else {
+        msg.unicast = param->client_recv_publish_msg.ctx->addr;
+        msg.device_id = ((ipac_ble_mesh_model_msg_ac_control_state_status_t*)(param->client_recv_publish_msg.msg))->device_id;
+        msg.device_state = ((ipac_ble_mesh_model_msg_ac_control_state_status_t*)(param->client_recv_publish_msg.msg))->device_state;
+        msg.status = ((ipac_ble_mesh_model_msg_ac_control_state_status_t*)(param->client_recv_publish_msg.msg))->status;
+    }
+    
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_AC_CONTROL_STATE_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_AC_CONTROL_STATE_STATUS);
+}
+
 static void ipac_uart_cmd_recv_device_info_get(void *arg, uint8_t status) {
     esp_ble_mesh_model_publish(device_info_client.model, DEVICE_INFO_MODEL_OPCODE_GET, 0, NULL, MSG_ROLE);
 }
@@ -1650,7 +1727,7 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
     }
 }
 
-void example_ble_mesh_send_vendor_message(bool resend)
+void ipac_ble_mesh_send_ac_control_state_msg(bool resend)
 {
     esp_ble_mesh_msg_ctx_t ctx = {0};
     uint32_t opcode;
@@ -1801,10 +1878,46 @@ static void ipac_ble_mesh_sensor_cli_model_cb(esp_ble_mesh_model_cb_event_t even
         break;
     case ESP_BLE_MESH_CLIENT_MODEL_SEND_TIMEOUT_EVT:
         // ESP_LOGW(TAG, "Client message 0x%06" PRIx32 " timeout", param->client_send_timeout.opcode);
-        example_ble_mesh_send_vendor_message(true);
+        // example_ble_mesh_send_vendor_message(true);
         break;
     default:
         break;
+    }
+}
+
+static void ipac_ble_mesh_ac_control_cli_model_cb(esp_ble_mesh_model_cb_event_t event,
+    esp_ble_mesh_model_cb_param_t *param)
+{
+    switch (event) {
+        case ESP_BLE_MESH_MODEL_OPERATION_EVT:
+            if (param->model_operation.opcode == AC_CONTROL_STATE_OPCODE_STATUS) {
+                if (param->model_operation.ctx->recv_op == AC_CONTROL_STATE_OPCODE_GET) {
+                    ipac_uart_cmd_send_ac_control_state_status(param, AC_CONTROL_STATE_OPCODE_GET, false);
+                }
+                else if (param->model_operation.ctx->recv_op == AC_CONTROL_STATE_OPCODE_SET) {
+                    ipac_uart_cmd_send_ac_control_state_status(param, AC_CONTROL_STATE_OPCODE_SET, false);
+                }
+            }
+            break;
+        case ESP_BLE_MESH_MODEL_SEND_COMP_EVT:
+            break;
+        case ESP_BLE_MESH_CLIENT_MODEL_RECV_PUBLISH_MSG_EVT:
+            if (param->client_recv_publish_msg.opcode == AC_CONTROL_STATE_OPCODE_STATUS) {
+                if (param->client_recv_publish_msg.ctx->recv_op == AC_CONTROL_STATE_OPCODE_GET) {
+                    ipac_uart_cmd_send_ac_control_state_status(param, AC_CONTROL_STATE_OPCODE_GET, true);
+                }
+                else if (param->client_recv_publish_msg.ctx->recv_op == AC_CONTROL_STATE_OPCODE_SET) {
+                    ipac_uart_cmd_send_ac_control_state_status(param, AC_CONTROL_STATE_OPCODE_SET, true);
+                }
+            }
+            // ipac_uart_cmd_send_sensor_data_status(param, true);
+            break;
+        case ESP_BLE_MESH_CLIENT_MODEL_SEND_TIMEOUT_EVT:
+            // ESP_LOGW(TAG, "Client message 0x%06" PRIx32 " timeout", param->client_send_timeout.opcode);
+            // example_ble_mesh_send_vendor_message(true);
+            break;
+        default:
+            break;
     }
 }
 
@@ -1821,21 +1934,18 @@ static esp_err_t ble_mesh_init(void)
     esp_ble_mesh_register_config_client_callback(example_ble_mesh_config_client_cb);
     esp_ble_mesh_register_rpr_client_callback(example_ble_mesh_remote_prov_client_callback);
     esp_ble_mesh_register_custom_model_callback(ipac_ble_mesh_sensor_cli_model_cb);
+    esp_ble_mesh_register_custom_model_callback(ipac_ble_mesh_ac_control_cli_model_cb);
 
     err = esp_ble_mesh_init(&provision, &composition);
     if (err != ESP_OK) {
-        // ESP_LOGE(TAG, "Failed to initialize mesh stack (err %d)", err);
         return err;
     }
 
-    err = esp_ble_mesh_client_model_init(&vnd_models[0]);
-    if (err) {
-        return err;
-    }
-
-    err = esp_ble_mesh_client_model_init(&vnd_models[1]);
-    if (err) {
-        return err;
+    for (uint32_t i = 0; i < ARRAY_SIZE(vnd_models); i++) {
+        err = esp_ble_mesh_client_model_init(&vnd_models[i]);
+        if (err) {
+            return err;
+        }
     }
 
     err = esp_ble_mesh_provisioner_set_dev_uuid_match(match, sizeof(match), 0x0, false);

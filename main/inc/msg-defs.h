@@ -35,6 +35,8 @@
 
 #define OPCODE_SENSOR_DATA_GET          0x50
 #define OPCODE_SENSOR_DATA_STATUS       0x51
+#define OPCODE_AC_CONTROL_STATE_GET     0x52
+#define OPCODE_AC_CONTROL_STATE_SET     0x53
 
 #define OPCODE_DEVICE_INFO_GET          0x80
 #define OPCODE_DEVICE_INFO_STATUS       0x81
@@ -356,6 +358,33 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status
     uint8_t checksum;
 } ipac_ble_mesh_msg_send_device_info_status_t;
 
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_ac_control_state_set {
+    uint16_t unicast;
+    uint8_t device_id;
+    uint32_t device_state;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_recv_ac_control_state_set_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_ac_control_state_set {
+    uint8_t device_id;
+    uint32_t device_state;
+} ipac_ble_mesh_model_msg_ac_control_state_set_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_ac_control_state_status {
+    uint8_t device_id;
+    uint32_t device_state;
+    uint8_t status;
+} ipac_ble_mesh_model_msg_ac_control_state_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_ac_control_state_status {
+    uint8_t opcode;
+    uint16_t unicast;
+    uint8_t device_id;
+    uint32_t device_state;
+    uint8_t status;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_send_ac_control_state_status_t;
+
 // size of arguments in message in command
 #define MSG_ARG_NONE                            0
 #define MSG_ARG_SIZE_GET_LOCAL_KEYS             MSG_ARG_NONE
@@ -370,6 +399,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status
 #define MSG_ARG_SIZE_SET_MODEL_PUB              sizeof(ipac_ble_mesh_msg_recv_model_pub_sub_set_t)
 #define MSG_ARG_SIZE_SET_MODEL_SUB              sizeof(ipac_ble_mesh_msg_recv_model_pub_sub_set_t)
 #define MSG_ARG_SIZE_SENSOR_DATA_GET            MSG_ARG_NONE
+#define MSG_ARG_SIZE_AC_CONTROL_STATE_SET       sizeof(ipac_ble_mesh_msg_recv_ac_control_state_set_t)
 #define MSG_ARG_SIZE_DEVICE_INFO_GET            MSG_ARG_NONE
 #define MSG_ARG_SIZE_RELAY_GET                  sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
 #define MSG_ARG_SIZE_RELAY_SET                  sizeof(ipac_ble_mesh_msg_send_relay_status_t)
@@ -408,6 +438,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status
 #define MSG_SIZE_REMOTE_PROV_ACK                sizeof(ipac_ble_mesh_msg_send_remote_prov_ack_t)
 #endif
 #define MSG_SIZE_SENSOR_DATA_STATUS             sizeof(ipac_ble_mesh_msg_send_sensor_data_status_t)
+#define MSG_SIZE_AC_CONTROL_STATE_STATUS        sizeof(ipac_ble_mesh_msg_send_ac_control_state_status_t)
 #define MSG_SIZE_DEVICE_INFO_STATUS             sizeof(ipac_ble_mesh_msg_send_device_info_status_t)
 
 #define MSG_ARG_SIZE_TEST_SIMPLE_MSG            MSG_ARG_NONE
