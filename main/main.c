@@ -225,6 +225,8 @@ static void ipac_uart_cmd_recv_proxy_get(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_proxy_set(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_friend_get(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_friend_set(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_heartbeat_pub_get(void *arg, uint8_t status);
+static void ipac_uart_cmd_recv_heartbeat_pub_set(void *arg, uint8_t status);
 #if CONFIG_BLE_MESH_RPR_CLI
 static void ipac_uart_cmd_recv_rpr_scan_get(void *arg, uint8_t status);
 static void ipac_uart_cmd_recv_rpr_scan_start(void *arg, uint8_t status);
@@ -262,6 +264,8 @@ static const ipac_uart_command_t uart_cmd[] = {
     {OPCODE_PROXY_SET, MSG_ARG_SIZE_PROXY_SET, ipac_uart_cmd_recv_proxy_set},
     {OPCODE_FRIEND_GET, MSG_ARG_SIZE_FRIEND_GET, ipac_uart_cmd_recv_friend_get},
     {OPCODE_FRIEND_SET, MSG_ARG_SIZE_FRIEND_SET, ipac_uart_cmd_recv_friend_set},
+    {OPCODE_HEARTBEAT_PUB_GET, MSG_ARG_SIZE_HEARTBEAT_PUB_GET, ipac_uart_cmd_recv_heartbeat_pub_get},
+    {OPCODE_HEARTBEAT_PUB_SET, MSG_ARG_SIZE_HEARTBEAT_PUB_SET, ipac_uart_cmd_recv_heartbeat_pub_set},
 #if CONFIG_BLE_MESH_RPR_CLI
     {OPCODE_RPR_SCAN_START, MSG_ARG_SIZE_RPR_SCAN_START, ipac_uart_cmd_recv_rpr_scan_start},
     {OPCODE_RPR_SCAN_STOP, MSG_ARG_SIZE_RPR_SCAN_STOP, ipac_uart_cmd_recv_rpr_scan_stop},
@@ -1001,6 +1005,92 @@ static void ipac_uart_cmd_send_friend_status(esp_ble_mesh_cfg_client_cb_param_t 
     uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_FRIEND_STATUS);
 }
 
+static void ipac_uart_cmd_recv_heartbeat_pub_get(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_get_state_t get_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_HEARTBEAT_PUB_SET, MSG_ARG_SIZE_HEARTBEAT_PUB_SET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_heartbeat_pub_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_HEARTBEAT_PUB_GET);
+    if (err != ESP_OK) {
+        return;
+    }
+
+    err = esp_ble_mesh_config_client_get_state(&common, &get_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_recv_heartbeat_pub_set(void *arg, uint8_t status) {
+    esp_err_t err = ESP_OK;
+    esp_ble_mesh_client_common_param_t common = {0};
+    esp_ble_mesh_cfg_client_set_state_t set_state = {0};
+
+    if (status != PACKET_OK) {
+        // error msg
+        return;
+    }
+
+    if (ipac_cal_checksum(arg, OPCODE_HEARTBEAT_PUB_SET, MSG_ARG_SIZE_HEARTBEAT_PUB_SET) != 0x00)
+    {
+        // error msg
+        return;
+    }
+
+    err = ipac_ble_mesh_set_msg_common(&common, ((ipac_ble_mesh_msg_recv_heartbeat_pub_set_t*)arg)->unicast, config_client.model, ESP_BLE_MESH_MODEL_OP_HEARTBEAT_PUB_SET);
+    if (err != ESP_OK) {
+        return;
+    }
+
+    set_state.heartbeat_pub_set.count = 0xFF;
+    set_state.heartbeat_pub_set.feature = 0x0F;
+    set_state.heartbeat_pub_set.net_idx = prov_key.net_idx;
+    set_state.heartbeat_pub_set.dst = ((ipac_ble_mesh_msg_recv_heartbeat_pub_set_t*)arg)->dst;
+    set_state.heartbeat_pub_set.period = ((ipac_ble_mesh_msg_recv_heartbeat_pub_set_t*)arg)->period;
+    set_state.heartbeat_pub_set.ttl = ((ipac_ble_mesh_msg_recv_heartbeat_pub_set_t*)arg)->ttl;
+    err = esp_ble_mesh_config_client_set_state(&common, &set_state);
+    if (err != ESP_OK) {
+        // error msg
+        return;
+    }
+}
+
+static void ipac_uart_cmd_send_heartbeat_pub_status(esp_ble_mesh_cfg_client_cb_param_t *param, uint8_t uart_opcode) {
+    ipac_ble_mesh_msg_send_heartbeat_pub_status_t msg = {
+        .opcode = uart_opcode,
+        .unicast = param->params->ctx.addr,
+        .dst = param->status_cb.heartbeat_pub_status.dst,
+        .ttl = param->status_cb.heartbeat_pub_status.ttl,
+        .period = param->status_cb.heartbeat_pub_status.period,
+    };
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_HEARTBEAT_PUB_STATUS);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_HEARTBEAT_PUB_STATUS);
+}
+
+static void pac_uart_cmd_send_heartbeat_msg(esp_ble_mesh_prov_cb_param_t *param) {
+    ipac_ble_mesh_msg_send_heartbeat_msg_t msg = {
+        .opcode = OPCODE_HEARTBEAT_MSG,
+        .feature = param->heartbeat_msg_recv.feature,
+        .hops = param->heartbeat_msg_recv.hops,
+    };
+
+    msg.checksum = ipac_cal_checksum((void*) &msg, 0, MSG_SIZE_HEARTBEAT_MSG);
+    uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_HEARTBEAT_MSG);
+}
+
 #if CONFIG_BLE_MESH_RPR_CLI
 static void ipac_uart_cmd_recv_rpr_scan_get(void *arg, uint8_t status) {
     esp_err_t err = ESP_OK;
@@ -1657,6 +1747,14 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
         }
         case ESP_BLE_MESH_MODEL_OP_FRIEND_SET: {
             ipac_uart_cmd_send_friend_status(param, OPCODE_FRIEND_GET);
+            break;
+        }
+        case ESP_BLE_MESH_MODEL_OP_HEARTBEAT_PUB_GET: {
+            ipac_uart_cmd_send_friend_status(param, OPCODE_HEARTBEAT_PUB_GET);
+            break;
+        }
+        case ESP_BLE_MESH_MODEL_OP_HEARTBEAT_PUB_SET: {
+            ipac_uart_cmd_send_friend_status(param, OPCODE_HEARTBEAT_PUB_SET);
             break;
         }
         default:

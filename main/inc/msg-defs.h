@@ -18,7 +18,7 @@
 #define OPCODE_RPR_SCAN_START           0x0D
 #define OPCODE_RPR_SCAN_STOP            0x0E
 #define OPCODE_RPR_LINK_GET             0x0F
-#define OPCODE_RPR_LINK_OPEN            0x00
+#define OPCODE_RPR_LINK_OPEN            0x10
 #define OPCODE_RPR_LINK_CLOSE           0x11
 #define OPCODE_REMOTE_PROVISIONING      0x12
 #define OPCODE_RELAY_GET                0x13
@@ -26,12 +26,15 @@
 #define OPCODE_PROXY_GET                0x15
 #define OPCODE_PROXY_SET                0x16
 #define OPCODE_FRIEND_GET               0x17
-#define OPCODE_FRIEND_SET               0x18
+#define OPCODE_FRIEND_SET               0x18 
+#define OPCODE_HEARTBEAT_PUB_GET        0x19
+#define OPCODE_HEARTBEAT_PUB_SET        0x20
 
 #define OPCODE_SCAN_RESULT              0x40
 #define OPCODE_SEND_NEW_NODE_INFO       0x41
 #define OPCODE_RPR_SCAN_RESULT          0x42
 #define OPCODE_RPR_LINK_REPORT          0x43
+#define OPCODE_HEARTBEAT_MSG            0x44
 
 #define OPCODE_SENSOR_DATA_GET          0x50
 #define OPCODE_SENSOR_DATA_STATUS       0x51
@@ -60,14 +63,14 @@ typedef uint8_t ipac_opcode_t;
 
 // command menu structure
 typedef struct ipac_uart_command {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint8_t msg_arg_size;
     void (*handler)(void*, uint8_t);
 } ipac_uart_command_t;
 
 // msg structure for sending local keys
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_get_local_keys {
-    uint8_t opcode;         // 1 byte
+    ipac_opcode_t opcode;         // 1 byte
     uint8_t status;         // 1 byte
     uint8_t net_key[16];    // 16 bytes
     uint8_t app_key[16];    // 16 bytes
@@ -82,7 +85,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_update_local_keys 
 
 // msg structure for unprovisioned device data
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_scan_result {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint8_t device_name[DEVICE_NAME_MAX_SIZE];  // 20 bytes
     uint8_t uuid[16];                           // 16 bytes
     uint8_t addr[BD_ADDR_LEN];                  // 6 bytes (BD_ADDR_LEN = 6)
@@ -106,7 +109,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_add_unprov_dev {
 
 // msg structure for unprovisioned device data
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_sent_add_unprov_dev_ack {
-    uint8_t opcode;                     // 1 bytes
+    ipac_opcode_t opcode;                     // 1 bytes
     uint8_t uuid[16];                   // 16 bytes
     uint8_t addr[BD_ADDR_LEN];          // 6 bytes (BD_ADDR_LEN = 6)
     esp_ble_mesh_addr_type_t addr_type; // 1 byte
@@ -134,7 +137,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_delete_device {
 } ipac_ble_mesh_msg_recv_delete_device_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_delete_device_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t status;
     uint8_t checksum;
@@ -157,7 +160,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_add_app_key {
 } ipac_ble_mesh_msg_recv_add_app_key_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_add_app_key_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t status;
     uint8_t checksum;
@@ -171,7 +174,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_bind_model_app {
 } ipac_ble_mesh_msg_recv_bind_model_app_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_model_app_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint16_t model_id;
     uint16_t cid;
@@ -188,7 +191,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_model_pub_sub_set 
 } ipac_ble_mesh_msg_recv_model_pub_sub_set_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_model_pub_sub_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint16_t group_addr;
     uint16_t model_id;
@@ -211,7 +214,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_relay_set {
 } ipac_ble_mesh_msg_recv_relay_set_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_relay_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t relay_state;
     uint8_t relay_retransmit;
@@ -225,7 +228,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_proxy_set {
 } ipac_ble_mesh_msg_recv_proxy_set_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_proxy_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t proxy_state;
     uint8_t checksum;
@@ -238,11 +241,41 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_friend_set {
 } ipac_ble_mesh_msg_recv_friend_set_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_friend_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t friend_state;
     uint8_t checksum;
 } ipac_ble_mesh_msg_send_friend_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_heartbeat_pub_get {
+    uint16_t unicast;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_recv_heartbeat_pub_get_t;
+
+// this msg is simpified from original packet due to hard config
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_heartbeat_pub_set {
+    uint16_t unicast;
+    uint16_t dst;
+    uint8_t period;
+    uint8_t ttl;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_recv_heartbeat_pub_set_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_heartbeat_pub_status {
+    ipac_opcode_t opcode;
+    uint16_t unicast;
+    uint16_t dst;
+    uint8_t period;
+    uint8_t ttl;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_send_heartbeat_pub_status_t;
+
+typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_heartbeat_msg {
+    ipac_opcode_t opcode;
+    uint16_t feature;
+    uint8_t hops;
+    uint8_t checksum;
+} ipac_ble_mesh_msg_send_heartbeat_msg_t;
 
 #if CONFIG_BLE_MESH_RPR_CLI
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_rpr_scan {
@@ -251,7 +284,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_rpr_scan {
 } ipac_ble_mesh_msg_recv_rpr_scan_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_rpr_scan_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t status;                                     /*!< Status for the requesting message */
     uint8_t rpr_scanning;                               /*!< The Remote Provisioning Scan state value */
@@ -261,7 +294,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_rpr_scan_status {
 } ipac_ble_mesh_msg_send_rpr_scan_status_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_rpr_scan_report {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     int8_t   rssi;                                      /*!< An indication of received signal strength measured in dBm */
     uint8_t  uuid[16];                                  /*!< Device UUID */
@@ -288,7 +321,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_rpr_link_close {
 } ipac_ble_mesh_msg_recv_rpr_link_close_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_rpr_link_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t status;                                     /*!< Status for the requesting message */
     uint8_t rpr_state;                                  /*!< Remote Provisioning Link state */
@@ -296,7 +329,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_rpr_link_status {
 } ipac_ble_mesh_msg_send_rpr_link_status_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_rpr_link_report {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t status;                                     /*!< Status of the provisioning bearer or the NPPI */
     uint8_t rpr_state;                                  /*!< Remote Provisioning Link state */
@@ -311,7 +344,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_recv_remote_prov {
 } ipac_ble_mesh_msg_recv_remote_prov_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_remote_prov_ack {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t status;
     uint8_t checksum;
@@ -330,7 +363,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_sensor_data_statu
 } ipac_ble_mesh_model_msg_sensor_data_status_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_sensor_data_status {
-    uint8_t opcode;         // 1 byte
+    ipac_opcode_t opcode;         // 1 byte
     uint16_t id;
     uint16_t unicast;       // 2 bytes
     float temp;             // 4 bytes
@@ -350,7 +383,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_device_info_statu
 } ipac_ble_mesh_model_msg_device_info_status_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_device_info_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t device_name[DEVICE_NAME_MAX_SIZE];
     uint8_t function;
@@ -377,7 +410,7 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_model_msg_ac_control_state_
 } ipac_ble_mesh_model_msg_ac_control_state_status_t;
 
 typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_ac_control_state_status {
-    uint8_t opcode;
+    ipac_opcode_t opcode;
     uint16_t unicast;
     uint8_t device_id;
     uint32_t device_state;
@@ -407,6 +440,8 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_ac_control_state_s
 #define MSG_ARG_SIZE_PROXY_SET                  sizeof(ipac_ble_mesh_msg_send_proxy_status_t)
 #define MSG_ARG_SIZE_FRIEND_GET                 sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
 #define MSG_ARG_SIZE_FRIEND_SET                 sizeof(ipac_ble_mesh_msg_send_friend_status_t)
+#define MSG_ARG_SIZE_HEARTBEAT_PUB_GET          sizeof(ipac_ble_mesh_msg_recv_heartbeat_pub_get_t)
+#define MSG_ARG_SIZE_HEARTBEAT_PUB_SET          sizeof(ipac_ble_mesh_msg_recv_heartbeat_pub_set_t)
 #if CONFIG_BLE_MESH_RPR_CLI
 #define MSG_ARG_SIZE_RPR_SCAN_GET               sizeof(ipac_ble_mesh_msg_recv_rpr_scan_t)
 #define MSG_ARG_SIZE_RPR_SCAN_START             sizeof(ipac_ble_mesh_msg_recv_rpr_scan_t)
@@ -430,6 +465,8 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_ac_control_state_s
 #define MSG_SIZE_RELAY_STATUS                   sizeof(ipac_ble_mesh_msg_send_relay_status_t)
 #define MSG_SIZE_PROXY_STATUS                   sizeof(ipac_ble_mesh_msg_send_proxy_status_t)
 #define MSG_SIZE_FRIEND_STATUS                  sizeof(ipac_ble_mesh_msg_send_friend_status_t)
+#define MSG_SIZE_HEARTBEAT_PUB_STATUS           sizeof(ipac_ble_mesh_msg_send_heartbeat_pub_status_t)
+#define MSG_SIZE_HEARTBEAT_MSG                  sizeof(ipac_ble_mesh_msg_send_heartbeat_msg_t)
 #if CONFIG_BLE_MESH_RPR_CLI
 #define MSG_SIZE_RPR_SCAN_STATUS                sizeof(ipac_ble_mesh_msg_send_rpr_scan_status_t)
 #define MSG_SIZE_RPR_SCAN_REPORT                sizeof(ipac_ble_mesh_msg_send_rpr_scan_report_t)
