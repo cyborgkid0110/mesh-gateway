@@ -65,13 +65,14 @@
 
 #define UART_PORT_NUM      2
 #define UART_BAUD_RATE     9600
-#define TASK_STACK_SIZE    2048
+#define TASK_STACK_SIZE    4096
 #define BUF_SIZE           80
 
 /********************************************************************
  * Local variables
  ********************************************************************/
-static ipac_uart_cmd_queue_t cmd_queue;
+// static ipac_uart_cmd_queue_t cmd_queue;
+QueueHandle_t cmd_queue;
 
 static struct esp_ble_mesh_key {
     uint16_t net_idx;
@@ -1080,7 +1081,7 @@ static void ipac_uart_cmd_send_heartbeat_pub_status(esp_ble_mesh_cfg_client_cb_p
     uart_write_bytes(UART_PORT_NUM, (const void *) &msg, MSG_SIZE_HEARTBEAT_PUB_STATUS);
 }
 
-static void pac_uart_cmd_send_heartbeat_msg(esp_ble_mesh_prov_cb_param_t *param) {
+static void ipac_uart_cmd_send_heartbeat_msg(esp_ble_mesh_prov_cb_param_t *param) {
     ipac_ble_mesh_msg_send_heartbeat_msg_t msg = {
         .opcode = OPCODE_HEARTBEAT_MSG,
         .feature = param->heartbeat_msg_recv.feature,
@@ -1515,11 +1516,7 @@ static void serial_com_init() {
 
 static void serial_com_task() {
     ipac_uart_cmd_buffer_t cmd_item = {0};
-    // Configure a temporary buffer for the incoming command
-    // uint8_t *command = (uint8_t *) malloc(BUF_SIZE);
     uint8_t command[BUF_SIZE] = {0};
-    // Read data from the UART
-    // memset(command, 0, BUF_SIZE);
     
     int len = uart_read_bytes(UART_PORT_NUM, command, 1, 20 / portTICK_PERIOD_MS);
     if (len <= 0) {
@@ -1533,13 +1530,15 @@ static void serial_com_task() {
             cmd_item.handler = uart_cmd[i].handler;
             if (uart_cmd[i].msg_arg_size == MSG_ARG_NONE) {
                 cmd_item.len = MSG_ARG_NONE;
-                ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
+                xQueueSendToBack(cmd_queue, &cmd_item, 0);
+                // ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
                 break;
             }
             int len = uart_read_bytes(UART_PORT_NUM, cmd_item.arg, uart_cmd[i].msg_arg_size, 1000 / portTICK_PERIOD_MS);
             if (len == uart_cmd[i].msg_arg_size) {
                 cmd_item.len = uart_cmd[i].msg_arg_size;
-                ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
+                xQueueSendToBack(cmd_queue, &cmd_item, 0);
+                // ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
             }
             break;
         }
@@ -1548,10 +1547,11 @@ static void serial_com_task() {
 
 static void ipac_uart_cmd_handle_task() {
     ipac_uart_cmd_buffer_t cmd;
-    uint8_t status = ipac_uart_cmd_queue_dequeue(&cmd_queue, &cmd);
-    if (status == 0) {
-        cmd.handler((void*) cmd.arg, PACKET_OK);
-    }
+    xQueueReceive(cmd_queue, &cmd, 0);
+    // uint8_t status = ipac_uart_cmd_queue_dequeue(&cmd_queue, &cmd);
+    // if (status == 0) {
+    //     cmd.handler((void*) cmd.arg, PACKET_OK);
+    // }
 }
 
 static void main_handle_task() {
@@ -1573,34 +1573,6 @@ static void prov_link_close(esp_ble_mesh_prov_bearer_t bearer, uint8_t reason)
 {
     // ESP_LOGI(TAG, "%s link close, reason 0x%02x",
             //  bearer == ESP_BLE_MESH_PROV_ADV ? "PB-ADV" : "PB-GATT", reason);
-}
-
-static void recv_unprov_adv_pkt(uint8_t dev_uuid[16], uint8_t addr[BD_ADDR_LEN],
-                                esp_ble_mesh_addr_type_t addr_type, uint16_t oob_info,
-                                uint8_t adv_type, esp_ble_mesh_prov_bearer_t bearer)
-{
-    esp_ble_mesh_unprov_dev_add_t add_dev = {0};
-    int err;
-
-    /* Due to the API esp_ble_mesh_provisioner_set_dev_uuid_match, Provisioner will only
-    * use this callback to report the devices, whose device UUID starts with 0xdd & 0xdd,
-    * to the application layer.
-    */
-
-    memcpy(add_dev.addr, addr, BD_ADDR_LEN);
-    add_dev.addr_type = (esp_ble_mesh_addr_type_t)addr_type;
-    memcpy(add_dev.uuid, dev_uuid, 16);
-    add_dev.oob_info = oob_info;
-    add_dev.bearer = (esp_ble_mesh_prov_bearer_t)bearer;
-    /* Note: If unprovisioned device adv packets have not been received, we should not add
-            device with ADD_DEV_START_PROV_NOW_FLAG set. */
-    err = esp_ble_mesh_provisioner_add_unprov_dev(&add_dev,
-            (esp_ble_mesh_dev_add_flag_t)(ADD_DEV_RM_AFTER_PROV_FLAG | ADD_DEV_START_PROV_NOW_FLAG | ADD_DEV_FLUSHABLE_DEV_FLAG));
-    if (err) {
-        // ESP_LOGE(TAG, "%s: Add unprovisioned device into queue failed", __func__);
-    }
-
-    return;
 }
 
 static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
@@ -1750,11 +1722,11 @@ static void example_ble_mesh_config_client_cb(esp_ble_mesh_cfg_client_cb_event_t
             break;
         }
         case ESP_BLE_MESH_MODEL_OP_HEARTBEAT_PUB_GET: {
-            ipac_uart_cmd_send_friend_status(param, OPCODE_HEARTBEAT_PUB_GET);
+            ipac_uart_cmd_send_heartbeat_pub_status(param, OPCODE_HEARTBEAT_PUB_GET);
             break;
         }
         case ESP_BLE_MESH_MODEL_OP_HEARTBEAT_PUB_SET: {
-            ipac_uart_cmd_send_friend_status(param, OPCODE_HEARTBEAT_PUB_SET);
+            ipac_uart_cmd_send_heartbeat_pub_status(param, OPCODE_HEARTBEAT_PUB_SET);
             break;
         }
         default:
@@ -2104,15 +2076,6 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
     gpio_init();
 
-    // gpio_set_level(GPIO_NUM_2, 1);
-    // vTaskDelay(300 / portTICK_PERIOD_MS);
-    // gpio_set_level(GPIO_NUM_2, 0);
-    // vTaskDelay(300 / portTICK_PERIOD_MS);
-    // gpio_set_level(GPIO_NUM_2, 1);
-    // vTaskDelay(300 / portTICK_PERIOD_MS);
-    // gpio_set_level(GPIO_NUM_2, 0);
-    // vTaskDelay(300 / portTICK_PERIOD_MS);
-
     err = bluetooth_init();
     if (err) {
         // ESP_LOGE(TAG, "esp32_bluetooth_init failed (err %d)", err);
@@ -2127,11 +2090,14 @@ void app_main(void)
         // ESP_LOGE(TAG, "Bluetooth mesh init failed (err %d)", err);
     }
 
-    ipac_uart_cmd_queue_init(&cmd_queue);
+    cmd_queue = xQueueCreate(BUFFER_MAX, sizeof(ipac_uart_cmd_buffer_t));
+    // ipac_uart_cmd_queue_init(&cmd_queue);
     serial_com_init();
 
     print_reset_reason();
 
     /* Run command handling task */
-    xTaskCreate(main_handle_task, "main_handle_task", TASK_STACK_SIZE * 2, NULL, 10, NULL);
+    // xTaskCreate(main_handle_task, "main_handle_task", TASK_STACK_SIZE * 2, NULL, 10, NULL);
+    xTaskCreate(serial_com_task, "serial_com_task", TASK_STACK_SIZE, NULL, 10, NULL);
+    xTaskCreate(ipac_uart_cmd_handle_task, "ipac_uart_cmd_handle_task", TASK_STACK_SIZE, NULL, 10, NULL);
 }
