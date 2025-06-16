@@ -31,6 +31,7 @@
 #include "inc/msg-defs.h"
 #include "inc/model.h"
 #include "inc/buffer.h"
+#include "inc/actuator_state.h"
 
 #include "ble_mesh_example_init.h"
 
@@ -65,7 +66,7 @@
 
 #define UART_PORT_NUM      2
 #define UART_BAUD_RATE     9600
-#define TASK_STACK_SIZE    4096
+#define TASK_STACK_SIZE    8192
 #define BUF_SIZE           80
 
 /********************************************************************
@@ -1515,51 +1516,60 @@ static void serial_com_init() {
 }
 
 static void serial_com_task() {
-    ipac_uart_cmd_buffer_t cmd_item = {0};
-    uint8_t command[BUF_SIZE] = {0};
-    
-    int len = uart_read_bytes(UART_PORT_NUM, command, 1, 20 / portTICK_PERIOD_MS);
-    if (len <= 0) {
-        return;
-    }
+    while (1) {
+        ipac_uart_cmd_buffer_t cmd_item = {0};
+        uint8_t command[BUF_SIZE] = {0};
+        
+        int len = uart_read_bytes(UART_PORT_NUM, command, 1, 20 / portTICK_PERIOD_MS);
+        if (len <= 0) {
+            continue;
+        }
+        // (void)uart_cmd;
 
-    // Check if command is match
-    for (int i = 0; i < ARRAY_SIZE(uart_cmd); i++) {
-        if (uart_cmd[i].opcode == command[0]) {
-            cmd_item.opcode = uart_cmd[i].opcode;
-            cmd_item.handler = uart_cmd[i].handler;
-            if (uart_cmd[i].msg_arg_size == MSG_ARG_NONE) {
-                cmd_item.len = MSG_ARG_NONE;
-                xQueueSendToBack(cmd_queue, &cmd_item, 0);
-                // ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
+        // Check if command is match
+        for (int i = 0; i < ARRAY_SIZE(uart_cmd); i++) {
+            if (uart_cmd[i].opcode == command[0]) {
+                cmd_item.opcode = uart_cmd[i].opcode;
+                cmd_item.handler = uart_cmd[i].handler;
+                if (uart_cmd[i].msg_arg_size == MSG_ARG_NONE) {
+                    cmd_item.len = MSG_ARG_NONE;
+                    xQueueSendToBack(cmd_queue, &cmd_item, 0);
+                    // ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
+                    break;
+                }
+                int len = uart_read_bytes(UART_PORT_NUM, cmd_item.arg, uart_cmd[i].msg_arg_size, 1000 / portTICK_PERIOD_MS);
+                if (len == uart_cmd[i].msg_arg_size) {
+                    cmd_item.len = uart_cmd[i].msg_arg_size;
+                    xQueueSendToBack(cmd_queue, &cmd_item, 0);
+                    // ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
+                }
                 break;
             }
-            int len = uart_read_bytes(UART_PORT_NUM, cmd_item.arg, uart_cmd[i].msg_arg_size, 1000 / portTICK_PERIOD_MS);
-            if (len == uart_cmd[i].msg_arg_size) {
-                cmd_item.len = uart_cmd[i].msg_arg_size;
-                xQueueSendToBack(cmd_queue, &cmd_item, 0);
-                // ipac_uart_cmd_queue_enqueue(&cmd_queue, &cmd_item);
-            }
-            break;
         }
     }
 }
 
 static void ipac_uart_cmd_handle_task() {
-    ipac_uart_cmd_buffer_t cmd;
-    xQueueReceive(cmd_queue, &cmd, 0);
+    BaseType_t xStatus;
+    while (1) {
+        ipac_uart_cmd_buffer_t cmd = {0};
+        xStatus = xQueueReceive(cmd_queue, &cmd, 0);
+        if (xStatus == pdPASS ) {
+            cmd.handler((void*) cmd.arg, PACKET_OK);
+        }
+    }
     // uint8_t status = ipac_uart_cmd_queue_dequeue(&cmd_queue, &cmd);
     // if (status == 0) {
     //     cmd.handler((void*) cmd.arg, PACKET_OK);
     // }
 }
 
-static void main_handle_task() {
-    while(1) {
-        serial_com_task();
-        ipac_uart_cmd_handle_task();
-    }
-}
+// static void main_handle_task() {
+//     while(1) {
+//         serial_com_task();
+//         ipac_uart_cmd_handle_task();
+//     }
+// }
 
 /********************************************************************
  * Bluetooth App Functions
@@ -1612,13 +1622,18 @@ static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
             if (err != ESP_OK) {
                 return;
             }
+            err = esp_ble_mesh_provisioner_bind_app_key_to_local_model(PROV_OWN_ADDR, prov_key.app_idx,
+                AC_CONTROL_MODEL_CLIENT, CID_ESP);
+            if (err != ESP_OK) {
+                return;
+            }
         }
         break;
     }
     case ESP_BLE_MESH_PROVISIONER_BIND_APP_KEY_TO_MODEL_COMP_EVT:
         if (param->node_bind_app_key_to_model_comp.err_code == ESP_OK) {
             esp_err_t err = ESP_OK;
-            err = esp_ble_mesh_model_subscribe_group_addr(PROV_OWN_ADDR, CID_ESP, SENSOR_MODEL_ID_CLIENT, GROUP_ADDRESS);
+            err = esp_ble_mesh_model_subscribe_group_addr(PROV_OWN_ADDR, CID_ESP, param->node_bind_app_key_to_model_comp.model_id, GROUP_ADDRESS);
             if (err != ESP_OK) {
                  return;
             }
@@ -1973,6 +1988,14 @@ static void ipac_ble_mesh_ac_control_cli_model_cb(esp_ble_mesh_model_cb_event_t 
             break;
         case ESP_BLE_MESH_CLIENT_MODEL_RECV_PUBLISH_MSG_EVT:
             if (param->client_recv_publish_msg.opcode == AC_CONTROL_STATE_OPCODE_STATUS) {
+                gpio_set_level(GPIO_NUM_2, 1);
+                vTaskDelay(150 / portTICK_PERIOD_MS);
+                gpio_set_level(GPIO_NUM_2, 0);
+                vTaskDelay(150 / portTICK_PERIOD_MS);
+                gpio_set_level(GPIO_NUM_2, 1);
+                vTaskDelay(150 / portTICK_PERIOD_MS);
+                gpio_set_level(GPIO_NUM_2, 0);
+                vTaskDelay(150 / portTICK_PERIOD_MS);
                 if (param->client_recv_publish_msg.ctx->recv_op == AC_CONTROL_STATE_OPCODE_GET) {
                     ipac_uart_cmd_send_ac_control_state_status(param, AC_CONTROL_STATE_OPCODE_GET, true);
                 }
@@ -2062,6 +2085,41 @@ static void print_reset_reason() {
     }
 }
 
+void test_ac() {
+    uint32_t prev_state = IPAC_UNIVERSAL_IR_CONTROLLER_STATE_OFF;
+    while (1) {
+        esp_ble_mesh_client_common_param_t common = {0};
+        ipac_ble_mesh_model_msg_ac_control_state_set_t msg = {0};
+        esp_err_t err = ESP_OK;
+
+        err = ipac_ble_mesh_set_msg_common(&common, 0x0005, ac_control_client.model, AC_CONTROL_STATE_OPCODE_SET);
+
+        if (err != ESP_OK) {
+            return;
+        }
+
+        msg.device_id = 0x01;
+        if (prev_state == IPAC_UNIVERSAL_IR_CONTROLLER_STATE_OFF) {
+            msg.device_state = IPAC_UNIVERSAL_IR_CONTROLLER_STATE_ON;   
+        }
+        else {
+            msg.device_state = IPAC_UNIVERSAL_IR_CONTROLLER_STATE_OFF;
+        }
+        prev_state = msg.device_state;
+
+        err = esp_ble_mesh_client_model_send_msg(ac_control_client.model, &(common.ctx), common.opcode, 
+            sizeof(msg), (uint8_t*) &msg, MSG_TIMEOUT, true, MSG_ROLE);
+        if (err != ESP_OK) {
+            return;
+        }
+        gpio_set_level(GPIO_NUM_2, 1);
+        vTaskDelay(300 / portTICK_PERIOD_MS);
+        gpio_set_level(GPIO_NUM_2, 0);
+        vTaskDelay(300 / portTICK_PERIOD_MS);
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+    }
+}
+
 void app_main(void)
 {
     esp_err_t err;
@@ -2100,4 +2158,5 @@ void app_main(void)
     // xTaskCreate(main_handle_task, "main_handle_task", TASK_STACK_SIZE * 2, NULL, 10, NULL);
     xTaskCreate(serial_com_task, "serial_com_task", TASK_STACK_SIZE, NULL, 10, NULL);
     xTaskCreate(ipac_uart_cmd_handle_task, "ipac_uart_cmd_handle_task", TASK_STACK_SIZE, NULL, 10, NULL);
+    xTaskCreate(test_ac, "test_ac", TASK_STACK_SIZE, NULL, 10, NULL);
 }
