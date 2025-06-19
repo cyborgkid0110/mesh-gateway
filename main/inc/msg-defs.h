@@ -28,7 +28,7 @@
 #define OPCODE_FRIEND_GET               0x17
 #define OPCODE_FRIEND_SET               0x18 
 #define OPCODE_HEARTBEAT_PUB_GET        0x19
-#define OPCODE_HEARTBEAT_PUB_SET        0x20
+#define OPCODE_HEARTBEAT_PUB_SET        0x1A
 
 #define OPCODE_SCAN_RESULT              0x40
 #define OPCODE_SEND_NEW_NODE_INFO       0x41
@@ -435,11 +435,11 @@ typedef struct __attribute__((packed)) ipac_ble_mesh_msg_send_ac_control_state_s
 #define MSG_ARG_SIZE_AC_CONTROL_STATE_SET       sizeof(ipac_ble_mesh_msg_recv_ac_control_state_set_t)
 #define MSG_ARG_SIZE_DEVICE_INFO_GET            MSG_ARG_NONE
 #define MSG_ARG_SIZE_RELAY_GET                  sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
-#define MSG_ARG_SIZE_RELAY_SET                  sizeof(ipac_ble_mesh_msg_send_relay_status_t)
+#define MSG_ARG_SIZE_RELAY_SET                  sizeof(ipac_ble_mesh_msg_recv_relay_set_t)
 #define MSG_ARG_SIZE_PROXY_GET                  sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
-#define MSG_ARG_SIZE_PROXY_SET                  sizeof(ipac_ble_mesh_msg_send_proxy_status_t)
+#define MSG_ARG_SIZE_PROXY_SET                  sizeof(ipac_ble_mesh_msg_recv_proxy_set_t)
 #define MSG_ARG_SIZE_FRIEND_GET                 sizeof(ipac_ble_mesh_msg_recv_node_role_get_t)
-#define MSG_ARG_SIZE_FRIEND_SET                 sizeof(ipac_ble_mesh_msg_send_friend_status_t)
+#define MSG_ARG_SIZE_FRIEND_SET                 sizeof(ipac_ble_mesh_msg_recv_friend_set_t)
 #define MSG_ARG_SIZE_HEARTBEAT_PUB_GET          sizeof(ipac_ble_mesh_msg_recv_heartbeat_pub_get_t)
 #define MSG_ARG_SIZE_HEARTBEAT_PUB_SET          sizeof(ipac_ble_mesh_msg_recv_heartbeat_pub_set_t)
 #if CONFIG_BLE_MESH_RPR_CLI

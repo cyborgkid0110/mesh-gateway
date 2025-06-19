@@ -258,7 +258,7 @@ static const ipac_uart_command_t uart_cmd[] = {
     {OPCODE_SET_MODEL_PUB, MSG_ARG_SIZE_SET_MODEL_PUB, ipac_uart_cmd_recv_model_pub_set},
     {OPCODE_SET_MODEL_SUB, MSG_ARG_SIZE_SET_MODEL_SUB, ipac_uart_cmd_recv_model_sub_add},
     {OPCODE_SENSOR_DATA_GET, MSG_ARG_SIZE_SENSOR_DATA_GET, ipac_uart_cmd_recv_sensor_data_get},
-    {OPCODE_AC_CONTROL_STATE_GET, MSG_ARG_SIZE_AC_CONTROL_STATE_SET, ipac_uart_cmd_recv_ac_control_state_set},
+    {OPCODE_AC_CONTROL_STATE_SET, MSG_ARG_SIZE_AC_CONTROL_STATE_SET, ipac_uart_cmd_recv_ac_control_state_set},
     {OPCODE_DEVICE_INFO_GET, MSG_ARG_SIZE_DEVICE_INFO_GET, ipac_uart_cmd_recv_device_info_get},
     {OPCODE_RELAY_GET, MSG_ARG_SIZE_RELAY_GET, ipac_uart_cmd_recv_relay_get},
     {OPCODE_RELAY_SET, MSG_ARG_SIZE_RELAY_SET, ipac_uart_cmd_recv_relay_set},
@@ -1422,7 +1422,14 @@ static void ipac_uart_cmd_recv_ac_control_state_set(void *arg, uint8_t status) {
 
     if (ipac_cal_checksum(arg, OPCODE_AC_CONTROL_STATE_SET, MSG_ARG_SIZE_AC_CONTROL_STATE_SET) != 0x00)
     {
-        // error msg
+        gpio_set_level(GPIO_NUM_2, 1);
+        vTaskDelay(150 / portTICK_PERIOD_MS);
+        gpio_set_level(GPIO_NUM_2, 0);
+        vTaskDelay(150 / portTICK_PERIOD_MS);
+        gpio_set_level(GPIO_NUM_2, 1);
+        vTaskDelay(150 / portTICK_PERIOD_MS);
+        gpio_set_level(GPIO_NUM_2, 0);
+        vTaskDelay(150 / portTICK_PERIOD_MS);
         return;
     }
 
@@ -1437,10 +1444,15 @@ static void ipac_uart_cmd_recv_ac_control_state_set(void *arg, uint8_t status) {
     msg.device_state = ((ipac_ble_mesh_msg_recv_ac_control_state_set_t*)arg)->device_state;
 
     err = esp_ble_mesh_client_model_send_msg(ac_control_client.model, &(common.ctx), common.opcode, 
-        sizeof(msg), (uint8_t*) &msg, MSG_TIMEOUT, true, MSG_ROLE);
+        sizeof(msg), (uint8_t*) &msg, MSG_TIMEOUT, false, MSG_ROLE);
     if (err != ESP_OK) {
         return;
     }
+
+    gpio_set_level(GPIO_NUM_2, 1);
+    vTaskDelay(300 / portTICK_PERIOD_MS);
+    gpio_set_level(GPIO_NUM_2, 0);
+    vTaskDelay(300 / portTICK_PERIOD_MS);
 }
 
 static void ipac_uart_cmd_send_ac_control_state_status(esp_ble_mesh_model_cb_param_t *param, uint8_t opcode, bool publish) {
@@ -2158,5 +2170,5 @@ void app_main(void)
     // xTaskCreate(main_handle_task, "main_handle_task", TASK_STACK_SIZE * 2, NULL, 10, NULL);
     xTaskCreate(serial_com_task, "serial_com_task", TASK_STACK_SIZE, NULL, 10, NULL);
     xTaskCreate(ipac_uart_cmd_handle_task, "ipac_uart_cmd_handle_task", TASK_STACK_SIZE, NULL, 10, NULL);
-    xTaskCreate(test_ac, "test_ac", TASK_STACK_SIZE, NULL, 10, NULL);
+    // xTaskCreate(test_ac, "test_ac", TASK_STACK_SIZE, NULL, 10, NULL);
 }
